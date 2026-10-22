@@ -216,7 +216,8 @@ func CopyToClipboard(text string) {
 	}
 	ptr, _, _ := k32.NewProc("GlobalLock").Call(hMem)
 	if ptr != 0 {
-		copy(unsafe.Slice((*uint16)(unsafe.Pointer(ptr)), len(utf16)), utf16)
+		dst := unsafe.Slice((*uint16)(unsafe.Pointer(ptr)), len(utf16))
+		copy(dst, utf16)
 		k32.NewProc("GlobalUnlock").Call(hMem)
 		u32.NewProc("SetClipboardData").Call(13, hMem)
 	}
