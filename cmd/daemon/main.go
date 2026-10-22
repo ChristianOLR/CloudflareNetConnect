@@ -56,6 +56,6 @@ func main() {
 	if err := orch.Start(); err != nil {
 		log.Fatalf("[FATAL] Error al iniciar orquestador: %v", err)
 	}
-	trayApp := tray.NewTrayApp(orch, cfg)
+	trayApp := tray.NewTrayApp(orch, cfg, *configPath)
 	trayApp.Run()
 }

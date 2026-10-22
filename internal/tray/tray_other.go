@@ -12,18 +12,16 @@ import (
 	"github.com/olrsoft/cloudflarenetconnect/internal/tunnel"
 )
 
-// TrayApp maneja el modo demonio headless en Linux y macOS cuando no hay entorno CGO/GUI.
 type TrayApp struct {
-	orch *tunnel.Orchestrator
-	cfg  *config.AppConfig
+	orch       *tunnel.Orchestrator
+	cfg        *config.AppConfig
+	configPath string
 }
 
-// NewTrayApp crea la instancia en modo demonio.
-func NewTrayApp(orch *tunnel.Orchestrator, cfg *config.AppConfig) *TrayApp {
-	return &TrayApp{orch: orch, cfg: cfg}
+func NewTrayApp(orch *tunnel.Orchestrator, cfg *config.AppConfig, configPath string) *TrayApp {
+	return &TrayApp{orch: orch, cfg: cfg, configPath: configPath}
 }
 
-// Run inicia el bucle de ejecución basado en señales del sistema.
 func (t *TrayApp) Run() {
 	log.Println("[DAEMON] Modo demonio activo (Linux/macOS sin CGO).")
 	if err := t.orch.Start(); err != nil {

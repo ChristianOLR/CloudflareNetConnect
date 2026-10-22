@@ -3,13 +3,13 @@
 package tray
 
 import (
+	"fmt"
 	"log"
 	"runtime"
 	"sync"
 	"unsafe"
 
 	"github.com/olrsoft/cloudflarenetconnect/assets"
-	"github.com/olrsoft/cloudflarenetconnect/internal/cloudflare"
 	"github.com/olrsoft/cloudflarenetconnect/internal/config"
 	"github.com/olrsoft/cloudflarenetconnect/internal/tunnel"
 	"golang.org/x/sys/windows"
@@ -18,7 +18,7 @@ import (
 const (
 	wmAppTray     = 0x8000 + 1
 	idMaster      = 1001
-	idRefresh     = 1002
+	idAssociate   = 1002
 	idQuit        = 1003
 	idAccountBase = 2000
 )
@@ -44,19 +44,21 @@ type NOTIFYICONDATAW struct {
 }
 
 type TrayApp struct {
-	orch  *tunnel.Orchestrator
-	cfg   *config.AppConfig
-	mu    sync.Mutex
-	hWnd  windows.Handle
-	hIcon windows.Handle
-	nid   NOTIFYICONDATAW
+	orch       *tunnel.Orchestrator
+	cfg        *config.AppConfig
+	configPath string
+	mu         sync.Mutex
+	hWnd       windows.Handle
+	hIcon      windows.Handle
+	nid        NOTIFYICONDATAW
 }
 
-func NewTrayApp(orch *tunnel.Orchestrator, cfg *config.AppConfig) *TrayApp {
-	return &TrayApp{orch: orch, cfg: cfg}
+func NewTrayApp(orch *tunnel.Orchestrator, cfg *config.AppConfig, configPath string) *TrayApp {
+	return &TrayApp{orch: orch, cfg: cfg, configPath: configPath}
 }
 
 func (t *TrayApp) Run() {
+	log.Println("[TRAY] Iniciando bucle de bandeja...")
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -90,9 +92,9 @@ func (t *TrayApp) Run() {
 		IconSm                             windows.Handle
 	}
 	wcex := &wndClassEx{
-		Size:     uint32(unsafe.Sizeof(wndClassEx{})),
-		WndProc:  windows.NewCallback(func(hWnd windows.Handle, msg uint32, wp, lp uintptr) uintptr {
-			if msg == wmAppTray && (lp == 0x0205 || lp == 0x0202) { // WM_RBUTTONUP o WM_LBUTTONUP
+		Size: 80,
+		WndProc: windows.NewCallback(func(hWnd windows.Handle, msg uint32, wp, lp uintptr) uintptr {
+			if msg == wmAppTray && (lp == 0x0205 || lp == 0x0202) {
 				t.showMenu(hWnd)
 				return 0
 			}
@@ -113,17 +115,16 @@ func (t *TrayApp) Run() {
 		CbSize:           uint32(unsafe.Sizeof(t.nid)),
 		HWnd:             t.hWnd,
 		UID:              100,
-		UFlags:           7, // NIF_MESSAGE | NIF_ICON | NIF_TIP
+		UFlags:           7,
 		UCallbackMessage: wmAppTray,
 		HIcon:            t.hIcon,
 	}
 	tip, _ := windows.UTF16FromString("CloudflareNetConnect - Multi-Cuenta (ON)")
 	copy(t.nid.SzTip[:], tip)
 
-	pShellNotifyIcon.Call(0, uintptr(unsafe.Pointer(&t.nid)))
-	log.Println("[TRAY] Icono oficial de Cloudflare anclado en la barra de tareas.")
+	res, _, err := pShellNotifyIcon.Call(0, uintptr(unsafe.Pointer(&t.nid)))
+	log.Printf("[TRAY] ShellNotifyIcon NIM_ADD res: %d, err: %v, hWnd: %x\n", res, err, t.hWnd)
 
-	// Message loop
 	type msg struct {
 		HWnd    windows.Handle
 		Message uint32
@@ -134,8 +135,9 @@ func (t *TrayApp) Run() {
 	}
 	var m msg
 	for {
-		ret, _, _ := pGetMessage.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
+		ret, _, err := pGetMessage.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
 		if int32(ret) <= 0 {
+			log.Printf("[TRAY] GetMessage salió con ret: %d, err: %v\n", ret, err)
 			break
 		}
 		pTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
@@ -163,7 +165,7 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 		pAppendMenu.Call(uintptr(hPopup), flags, id, uintptr(unsafe.Pointer(ptr)))
 	}
 
-	appendStr(0x0001, 0, "☁️ CloudflareNetConnect (Activo)")
+	appendStr(0x0001, 0, "☁️ CloudflareNetConnect")
 	appendStr(0x0800, 0, "") // Separator
 
 	toggleFlag := uintptr(0x0000)
@@ -171,7 +173,24 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 		toggleFlag = 0x0008 // MF_CHECKED
 	}
 	appendStr(toggleFlag, idMaster, "Interruptor Maestro (ON / OFF)")
-	appendStr(0x0000, idRefresh, "🔄 Auto-Descubrir Cuentas (Cloudflare API)")
+	appendStr(0x0800, 0, "") // Separator
+
+	// Listado de cuentas asociadas
+	t.mu.Lock()
+	accountMap := make(map[uintptr]int)
+	for i, acc := range t.cfg.Accounts {
+		flag := uintptr(0x0000)
+		if acc.Enabled {
+			flag = 0x0008 // MF_CHECKED
+		}
+		accID := uintptr(idAccountBase + i)
+		accountMap[accID] = i
+		appendStr(flag, accID, fmt.Sprintf("✓ %s", acc.Name))
+	}
+	t.mu.Unlock()
+
+	appendStr(0x0800, 0, "") // Separator
+	appendStr(0x0000, idAssociate, "➕ Asociar nueva cuenta...")
 	appendStr(0x0800, 0, "") // Separator
 	appendStr(0x0000, idQuit, "❌ Salir")
 
@@ -181,33 +200,25 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 
 	cmd, _, _ := pTrackPopupMenu.Call(uintptr(hPopup), 0x0100|0x0002, uintptr(pt.X), uintptr(pt.Y), 0, uintptr(hWnd), 0)
 
+	if idx, ok := accountMap[cmd]; ok {
+		t.mu.Lock()
+		t.cfg.Accounts[idx].Enabled = !t.cfg.Accounts[idx].Enabled
+		_ = config.SaveConfig(t.configPath, t.cfg)
+		t.mu.Unlock()
+		log.Printf("[TRAY] Conmutada cuenta '%s': %v\n", t.cfg.Accounts[idx].Name, t.cfg.Accounts[idx].Enabled)
+		return
+	}
+
 	switch cmd {
 	case idMaster:
 		t.cfg.MasterToggle = !t.cfg.MasterToggle
 		t.orch.SetMasterToggle(t.cfg.MasterToggle)
 		log.Printf("[TRAY] Conmutador Maestro: %v\n", t.cfg.MasterToggle)
-	case idRefresh:
-		log.Println("[TRAY] Consultando organizaciones Cloudflare...")
-		go t.discoverAccounts()
+	case idAssociate:
+		t.StartAssociateFlow()
 	case idQuit:
 		log.Println("[TRAY] Cierre ordenado solicitado.")
 		_ = t.orch.Stop()
 		pPostQuitMessage.Call(0)
-	}
-}
-
-func (t *TrayApp) discoverAccounts() {
-	for _, acc := range t.cfg.Accounts {
-		if acc.APIToken != "" {
-			client := cloudflare.NewClient(acc.APIToken)
-			accounts, err := client.ListAccounts()
-			if err != nil {
-				log.Printf("[API-DISCOVERY] Error %s: %v\n", acc.ID, err)
-				continue
-			}
-			for _, remoteAcc := range accounts {
-				log.Printf("[API-DISCOVERY] Cuenta remota detectada: %s (%s)\n", remoteAcc.Name, remoteAcc.ID)
-			}
-		}
 	}
 }

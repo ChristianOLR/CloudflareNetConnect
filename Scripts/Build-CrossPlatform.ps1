@@ -25,12 +25,12 @@ try {
 
     Write-Host "Compilando CloudflareNetConnect..." -ForegroundColor Cyan
 
-    # 1. Windows (AMD64)
-    Write-Host "  -> Generando binario Windows..."
+    # 1. Windows (AMD64) con subsistema GUI silencioso
+    Write-Host "  -> Generando binario Windows (GUI Silencioso)..."
     $env:CGO_ENABLED = "0"
     $env:GOOS = "windows"
     $env:GOARCH = "amd64"
-    & $GoExe build -ldflags "-s -w" -o (Join-Path $BinDir "CloudflareNetConnect.exe") ./cmd/daemon
+    & $GoExe build -ldflags "-s -w -H=windowsgui" -o (Join-Path $BinDir "CloudflareNetConnect.exe") ./cmd/daemon
 
     # 2. Linux (AMD64)
     Write-Host "  -> Generando binario Linux..."
