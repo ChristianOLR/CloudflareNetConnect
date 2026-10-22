@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/signal"
 	"path/filepath"
-	"syscall"
 
 	"github.com/olrsoft/cloudflarenetconnect/internal/config"
 	"github.com/olrsoft/cloudflarenetconnect/internal/service"
@@ -33,8 +31,6 @@ func main() {
 	}
 
 	orch := tunnel.NewOrchestrator(cfg)
-	_ = tray.NewTrayHandler(orch)
-
 	svc, err := service.ConfigService(orch)
 	if err != nil {
 		log.Fatalf("[FATAL] Error configurando servicio: %v", err)
@@ -47,6 +43,7 @@ func main() {
 		return
 	}
 
+	// Si se ejecuta como servicio en segundo plano (Session 0)
 	if len(flag.Args()) > 0 && flag.Args()[0] == "run" {
 		if err := svc.Run(); err != nil {
 			log.Fatalf("[FATAL] Error en ejecución de servicio: %v", err)
@@ -54,16 +51,11 @@ func main() {
 		return
 	}
 
-	fmt.Println("=== CloudflareNetConnect - Multi-Account Daemon ===")
+	// Modo interactivo con bandeja del sistema (System Tray nativo)
+	fmt.Println("=== CloudflareNetConnect - Modo Bandeja del Sistema (Tray) ===")
 	if err := orch.Start(); err != nil {
 		log.Fatalf("[FATAL] Error al iniciar orquestador: %v", err)
 	}
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	<-sigChan
-
-	log.Println("\n[INFO] Señal recibida. Cerrando conexiones...")
-	_ = orch.Stop()
-	log.Println("[INFO] Salida limpia completada.")
+	trayApp := tray.NewTrayApp(orch, cfg)
+	trayApp.Run()
 }
