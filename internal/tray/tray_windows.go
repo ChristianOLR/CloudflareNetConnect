@@ -17,10 +17,8 @@ import (
 const (
 	wmAppTray       = 0x8000 + 1
 	idMaster        = 1001
-	idAssociateArgo = 1002
+	idAssociate     = 1002
 	idQuit          = 1003
-	idAssocOLR      = 1004
-	idAssocHispa    = 1005
 	idAccToggleBase = 2000
 	idAccRemoveBase = 3000
 )
@@ -219,13 +217,7 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 	t.mu.Unlock()
 
 	appendStr(hPopup, 0x0800, 0, "")
-	hAssocSub, _, _ := pCreatePopupMenu.Call()
-	hAssocMenu := windows.Handle(hAssocSub)
-	appendStr(hAssocMenu, 0x0000, idAssocOLR, "⚡ OLRSoft (SSO Automático 0-Click)")
-	appendStr(hAssocMenu, 0x0000, idAssocHispa, "⚡ HispaServer (SSO Automático 0-Click)")
-	appendStr(hAssocMenu, 0x0800, 0, "")
-	appendStr(hAssocMenu, 0x0000, idAssociateArgo, "☁️ Otra cuenta Cloudflare (Elegir Dominio)...")
-	appendStr(hPopup, 0x0010, uintptr(hAssocMenu), "➕ Asociar nueva cuenta...")
+	appendStr(hPopup, 0x0000, idAssociate, "➕ Asociar nueva cuenta...")
 	appendStr(hPopup, 0x0800, 0, "")
 	appendStr(hPopup, 0x0000, idQuit, "❌ Salir")
 
@@ -265,12 +257,8 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 		t.orch.SetMasterToggle(t.cfg.MasterToggle)
 		t.updateTrayIcon(t.cfg.MasterToggle)
 		log.Printf("[TRAY] Master Toggle -> %v (icono actualizado)\n", t.cfg.MasterToggle)
-	case idAssocOLR:
-		t.StartAssociateFlow("olrsoft")
-	case idAssocHispa:
-		t.StartAssociateFlow("hispaserver")
-	case idAssociateArgo:
-		t.StartAssociateFlow("")
+	case idAssociate:
+		t.StartAssociateFlow()
 	case idQuit:
 		log.Println("[TRAY] Cierre ordenado solicitado.")
 		_ = t.orch.Stop()

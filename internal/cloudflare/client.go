@@ -111,24 +111,8 @@ func (c *Client) GetZone(zoneID string) (*Zone, error) {
 	return &parsed.Result, nil
 }
 
-// ResolveAccountInfo resuelve el nombre e ID de la cuenta usando AccountID, ZoneID o ListAccounts.
+// ResolveAccountInfo resuelve dinámicamente el nombre e ID de la cuenta o zona sin valores hardcodeados.
 func (c *Client) ResolveAccountInfo(accountID, zoneID string) (string, string) {
-	knownAccounts := map[string]string{
-		"9940795d76034a3a83ec23ab25311965": "OLRSoft (olrcloud.com)",
-		"594305aae51efdc7ea200ed8d00838ea": "HispaServer (Personal)",
-	}
-	knownZones := map[string]string{
-		"65b70210439f905d8b0ef98fdc978985": "OLRSoft (olrcloud.com)",
-	}
-	if name, ok := knownZones[zoneID]; ok {
-		if accountID == "" {
-			accountID = "9940795d76034a3a83ec23ab25311965"
-		}
-		return accountID, name
-	}
-	if name, ok := knownAccounts[accountID]; ok {
-		return accountID, name
-	}
 	if zoneID != "" {
 		if z, err := c.GetZone(zoneID); err == nil && z != nil {
 			accID := z.Account.ID
@@ -163,7 +147,7 @@ func (c *Client) ResolveAccountInfo(accountID, zoneID string) (string, string) {
 		if len(short) > 8 {
 			short = short[:8]
 		}
-		return accountID, "Cloudflare (" + short + ")"
+		return accountID, "Cuenta Cloudflare (" + short + ")"
 	}
 	return "cf-linked", "Cuenta Cloudflare Vinculada"
 }

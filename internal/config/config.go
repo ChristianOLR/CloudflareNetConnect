@@ -30,35 +30,11 @@ type AppConfig struct {
 	Accounts     []AccountConfig `json:"accounts"`
 }
 
-// DefaultConfig genera una configuración inicial por defecto.
+// DefaultConfig genera una configuración inicial limpia sin cuentas predefinidas.
 func DefaultConfig() *AppConfig {
 	return &AppConfig{
 		MasterToggle: true,
-		Accounts: []AccountConfig{
-			{
-				ID:        "hispa",
-				Name:      "HispaServer (Personal)",
-				AccountID: "594305aae51efdc7ea200ed8d00838ea",
-				APIToken:  "",
-				Enabled:   true,
-				Routes:    []TunnelRoute{},
-			},
-			{
-				ID:        "olr",
-				Name:      "OLRSoft (Corporativo)",
-				AccountID: "9940795d76034a3a83ec23ab25311965",
-				APIToken:  "",
-				Enabled:   true,
-				Routes: []TunnelRoute{
-					{
-						Hostname:  "syncnetdb.olrcloud.com",
-						LocalPort: 5432,
-						Protocol:  "tcp",
-						Enabled:   true,
-					},
-				},
-			},
-		},
+		Accounts:     []AccountConfig{},
 	}
 }
 
