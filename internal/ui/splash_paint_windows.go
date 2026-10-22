@@ -70,7 +70,7 @@ func (s *SplashWindow) paintCard(hWnd windows.Handle) {
 	pDeleteObject.Call(borderPen)
 
 	// 2. Anillos concéntricos animados de Cloudflare
-	cx, cy := int32(w/2), int32(88)
+	cx, cy := int32(w/2), int32(76)
 	s.mu.Lock()
 	tick := s.animTick
 	copied := s.copiedState
@@ -119,11 +119,13 @@ func (s *SplashWindow) paintCard(hWnd windows.Handle) {
 	// 3. Textos tipográficos Segoe UI
 	pSetBkMode.Call(memDC, 1)
 	fontFace, _ := windows.UTF16PtrFromString("Segoe UI")
-	fTitle, _, _ := pCreateFontW.Call(22, 0, 0, 0, 700, 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(fontFace)))
-	fSub, _, _ := pCreateFontW.Call(15, 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(fontFace)))
+	fTitle, _, _ := pCreateFontW.Call(21, 0, 0, 0, 700, 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(fontFace)))
+	fHint, _, _ := pCreateFontW.Call(13, 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(fontFace)))
+	fSub, _, _ := pCreateFontW.Call(15, 0, 0, 0, 600, 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(fontFace)))
 	fBtn, _, _ := pCreateFontW.Call(16, 0, 0, 0, 700, 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(fontFace)))
 	defer func() {
 		pDeleteObject.Call(fTitle)
+		pDeleteObject.Call(fHint)
 		pDeleteObject.Call(fSub)
 		pDeleteObject.Call(fBtn)
 	}()
@@ -131,17 +133,20 @@ func (s *SplashWindow) paintCard(hWnd windows.Handle) {
 	drawCentered := func(font uintptr, color uintptr, top, bottom int32, text string) {
 		pSelectObject.Call(memDC, font)
 		pSetTextColor.Call(memDC, color)
-		rc := rect{20, top, w - 20, bottom}
+		rc := rect{16, top, w - 16, bottom}
 		u16, _ := windows.UTF16PtrFromString(text)
 		pDrawTextW.Call(memDC, uintptr(unsafe.Pointer(u16)), ^uintptr(0), uintptr(unsafe.Pointer(&rc)), 0x01|0x04|0x20)
 	}
 
-	drawCentered(fTitle, 0x00FFFFFF, 150, 178, "Vincular Cuenta Cloudflare")
+	drawCentered(fTitle, 0x00FFFFFF, 138, 162, "Vincular Cuenta Cloudflare")
+	drawCentered(fHint, 0x00C8B8A8, 164, 182, "1. Abre o pega el enlace en tu navegador")
+	drawCentered(fHint, 0x00C8B8A8, 180, 198, "2. Selecciona el dominio y pulsa «Authorize»")
+
 	statusColor := uintptr(0x0074BAFD)
 	if isSuccess {
 		statusColor = 0x0099D334
 	}
-	drawCentered(fSub, statusColor, 182, 208, statusTxt)
+	drawCentered(fSub, statusColor, 198, 220, statusTxt)
 
 	// 4. Botón 1: Copiar Enlace [32..348, 224..268]
 	btnBg := uintptr(0x002081F4) // Naranja Cloudflare BGR(244, 129, 32)

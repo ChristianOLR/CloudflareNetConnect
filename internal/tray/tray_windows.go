@@ -4,6 +4,7 @@ package tray
 
 import (
 	"log"
+	"os"
 	"runtime"
 	"sync"
 	"unsafe"
@@ -16,9 +17,15 @@ import (
 
 const (
 	wmAppTray       = 0x8000 + 1
+	idHeader        = 1000
 	idMaster        = 1001
 	idAssociate     = 1002
 	idQuit          = 1003
+	idStartupToggle = 1010
+	idSvcInstall    = 1011
+	idSvcStart      = 1012
+	idSvcStop       = 1013
+	idSvcUninstall  = 1014
 	idAccToggleBase = 2000
 	idAccRemoveBase = 3000
 )
@@ -30,6 +37,8 @@ type TrayApp struct {
 	mu         sync.Mutex
 	hWnd       windows.Handle
 	hIcon      windows.Handle
+	hDotGreen  windows.Handle
+	hDotRed    windows.Handle
 	nid        NOTIFYICONDATAW
 }
 
@@ -45,18 +54,10 @@ func (t *TrayApp) Run() {
 	s32 := windows.NewLazySystemDLL("shell32.dll")
 	k32 := windows.NewLazySystemDLL("kernel32.dll")
 
-	pGetModuleHandle := k32.NewProc("GetModuleHandleW")
-	pRegisterClass := u32.NewProc("RegisterClassExW")
-	pCreateWindowEx := u32.NewProc("CreateWindowExW")
-	pDefWindowProc := u32.NewProc("DefWindowProcW")
-	pShellNotifyIcon := s32.NewProc("Shell_NotifyIconW")
-	pGetMessage := u32.NewProc("GetMessageW")
-	pTranslateMessage := u32.NewProc("TranslateMessage")
-	pDispatchMessage := u32.NewProc("DispatchMessageW")
-	pDestroyWindow := u32.NewProc("DestroyWindow")
-
-	hInst, _, _ := pGetModuleHandle.Call(0)
-	t.hIcon = t.createHIcon(t.cfg.MasterToggle)
+	hInst, _, _ := k32.NewProc("GetModuleHandleW").Call(0)
+	t.hDotGreen = createColorDotBitmap(true)
+	t.hDotRed = createColorDotBitmap(false)
+	t.hIcon = t.createHIcon(t.isEffectivelyActive())
 
 	clsName, _ := windows.UTF16PtrFromString("CloudflareNetConnectTray")
 	type wndClassEx struct {
@@ -74,35 +75,30 @@ func (t *TrayApp) Run() {
 				t.showMenu(hWnd)
 				return 0
 			}
-			r, _, _ := pDefWindowProc.Call(uintptr(hWnd), uintptr(msg), wp, lp)
+			r, _, _ := u32.NewProc("DefWindowProcW").Call(uintptr(hWnd), uintptr(msg), wp, lp)
 			return r
 		}),
 		Instance:  windows.Handle(hInst),
 		Icon:      t.hIcon,
 		ClassName: clsName,
 	}
-	pRegisterClass.Call(uintptr(unsafe.Pointer(wcex)))
+	u32.NewProc("RegisterClassExW").Call(uintptr(unsafe.Pointer(wcex)))
 
 	wName, _ := windows.UTF16PtrFromString("CloudflareNetConnectHidden")
-	hWin, _, _ := pCreateWindowEx.Call(0, uintptr(unsafe.Pointer(clsName)), uintptr(unsafe.Pointer(wName)), 0x00CF0000, 0, 0, 0, 0, 0, 0, hInst, 0)
+	hWin, _, _ := u32.NewProc("CreateWindowExW").Call(0, uintptr(unsafe.Pointer(clsName)), uintptr(unsafe.Pointer(wName)), 0x00CF0000, 0, 0, 0, 0, 0, 0, hInst, 0)
 	t.hWnd = windows.Handle(hWin)
 
 	t.nid = NOTIFYICONDATAW{
 		CbSize:           uint32(unsafe.Sizeof(t.nid)),
 		HWnd:             t.hWnd,
 		UID:              100,
-		UFlags:           7, // NIF_MESSAGE | NIF_ICON | NIF_TIP
+		UFlags:           7,
 		UCallbackMessage: wmAppTray,
 		HIcon:            t.hIcon,
 	}
-	tipText := "CloudflareNetConnect - Activo (ON)"
-	if !t.cfg.MasterToggle {
-		tipText = "CloudflareNetConnect - En Reposo (OFF)"
-	}
-	tip, _ := windows.UTF16FromString(tipText)
-	copy(t.nid.SzTip[:], tip)
 
-	pShellNotifyIcon.Call(0, uintptr(unsafe.Pointer(&t.nid)))
+	s32.NewProc("Shell_NotifyIconW").Call(0, uintptr(unsafe.Pointer(&t.nid)))
+	t.refreshTrayState()
 	log.Println("[TRAY] Icono de Cloudflare anclado en la barra de tareas.")
 
 	type msg struct {
@@ -115,43 +111,25 @@ func (t *TrayApp) Run() {
 	}
 	var m msg
 	for {
-		ret, _, _ := pGetMessage.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
+		ret, _, _ := u32.NewProc("GetMessageW").Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
 		if int32(ret) <= 0 {
 			break
 		}
-		pTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
-		pDispatchMessage.Call(uintptr(unsafe.Pointer(&m)))
+		u32.NewProc("TranslateMessage").Call(uintptr(unsafe.Pointer(&m)))
+		u32.NewProc("DispatchMessageW").Call(uintptr(unsafe.Pointer(&m)))
 	}
 
-	pShellNotifyIcon.Call(2, uintptr(unsafe.Pointer(&t.nid)))
-	pDestroyWindow.Call(uintptr(t.hWnd))
-}
-
-func (t *TrayApp) updateTrayIcon(active bool) {
-	s32 := windows.NewLazySystemDLL("shell32.dll")
-	pShellNotifyIcon := s32.NewProc("Shell_NotifyIconW")
-
-	t.hIcon = t.createHIcon(active)
-	t.nid.HIcon = t.hIcon
-	tipText := "CloudflareNetConnect - Activo (ON)"
-	if !active {
-		tipText = "CloudflareNetConnect - En Reposo (OFF)"
-	}
-	tip, _ := windows.UTF16FromString(tipText)
-	copy(t.nid.SzTip[:], tip)
-
-	pShellNotifyIcon.Call(1, uintptr(unsafe.Pointer(&t.nid))) // NIM_MODIFY = 1
+	s32.NewProc("Shell_NotifyIconW").Call(2, uintptr(unsafe.Pointer(&t.nid)))
+	u32.NewProc("DestroyWindow").Call(uintptr(t.hWnd))
 }
 
 func (t *TrayApp) createHIcon(active bool) windows.Handle {
 	u32 := windows.NewLazySystemDLL("user32.dll")
-	pCreateIconFromResourceEx := u32.NewProc("CreateIconFromResourceEx")
-
 	pngBytes := assets.CloudflareGreenPNG
 	if !active {
 		pngBytes = assets.CloudflareRedPNG
 	}
-	hIcon, _, _ := pCreateIconFromResourceEx.Call(uintptr(unsafe.Pointer(&pngBytes[0])), uintptr(len(pngBytes)), 1, 0x00030000, 32, 32, 0)
+	hIcon, _, _ := u32.NewProc("CreateIconFromResourceEx").Call(uintptr(unsafe.Pointer(&pngBytes[0])), uintptr(len(pngBytes)), 1, 0x00030000, 32, 32, 0)
 	return windows.Handle(hIcon)
 }
 
@@ -159,10 +137,7 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 	u32 := windows.NewLazySystemDLL("user32.dll")
 	pCreatePopupMenu := u32.NewProc("CreatePopupMenu")
 	pAppendMenu := u32.NewProc("AppendMenuW")
-	pTrackPopupMenu := u32.NewProc("TrackPopupMenu")
-	pGetCursorPos := u32.NewProc("GetCursorPos")
-	pSetForegroundWindow := u32.NewProc("SetForegroundWindow")
-	pPostQuitMessage := u32.NewProc("PostQuitMessage")
+	pSetMenuItemBitmaps := u32.NewProc("SetMenuItemBitmaps")
 
 	hMenu, _, _ := pCreatePopupMenu.Call()
 	hPopup := windows.Handle(hMenu)
@@ -172,23 +147,36 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 		pAppendMenu.Call(uintptr(h), flags, id, uintptr(unsafe.Pointer(ptr)))
 	}
 
-	headerText := "☁️ CloudflareNetConnect (🟢 Activo)"
-	if !t.cfg.MasterToggle {
-		headerText = "☁️ CloudflareNetConnect (🔴 Pausado)"
-	}
-	appendStr(hPopup, 0x0001, 0, headerText)
-	appendStr(hPopup, 0x0800, 0, "") // Separator
+	t.mu.Lock()
+	effectivelyActive := t.isEffectivelyActive()
+	hasAccounts := len(t.cfg.Accounts) > 0
+	t.mu.Unlock()
 
-	toggleFlag := uintptr(0x0000)
-	if t.cfg.MasterToggle {
-		toggleFlag = 0x0008 // MF_CHECKED
+	headerText := "CloudflareNetConnect (Sin dominios activos)"
+	headerDot := t.hDotRed
+	if effectivelyActive {
+		headerText = "CloudflareNetConnect (Servicio Activo)"
+		headerDot = t.hDotGreen
+	} else if !t.cfg.MasterToggle {
+		headerText = "CloudflareNetConnect (Servicio Desactivado)"
 	}
-	appendStr(hPopup, toggleFlag, idMaster, "Interruptor Maestro (ON / OFF)")
-	appendStr(hPopup, 0x0800, 0, "") // Separator
+	appendStr(hPopup, 0x0000, idHeader, headerText)
+	pSetMenuItemBitmaps.Call(uintptr(hPopup), idHeader, 0, uintptr(headerDot), uintptr(headerDot))
+	appendStr(hPopup, 0x0800, 0, "")
+
+	masterLabel := "⚡ Activar Servicio de Túneles (Actualmente OFF)"
+	masterFlag := uintptr(0x0000)
+	if t.cfg.MasterToggle {
+		masterLabel = "⚡ Servicio de Túneles Activo (Clic para Desactivar)"
+		masterFlag = 0x0008
+	}
+	appendStr(hPopup, masterFlag, idMaster, masterLabel)
+	appendStr(hPopup, 0x0800, 0, "")
 
 	t.mu.Lock()
 	toggleMap := make(map[uintptr]int)
 	removeMap := make(map[uintptr]int)
+	posIndex := uintptr(4)
 	for i, acc := range t.cfg.Accounts {
 		hSub, _, _ := pCreatePopupMenu.Call()
 		hSubMenu := windows.Handle(hSub)
@@ -199,34 +187,57 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 		removeMap[accRemoveID] = i
 
 		flag := uintptr(0x0000)
-		stateLabel := "[ ] Pausada (Habilitar)"
+		stateLabel := "Activar conexión de este dominio"
 		if acc.Enabled {
 			flag = 0x0008
-			stateLabel = "[✓] Activa (Pausar)"
+			stateLabel = "Dominio Activo (Clic para Desactivar)"
 		}
 		appendStr(hSubMenu, flag, accToggleID, stateLabel)
 		appendStr(hSubMenu, 0x0800, 0, "")
 		appendStr(hSubMenu, 0x0000, accRemoveID, "🗑️ Desvincular cuenta")
 
-		iconPrefix := "🔴 "
-		if acc.Enabled {
-			iconPrefix = "🟢 "
+		appendStr(hPopup, 0x0010, uintptr(hSubMenu), acc.Name)
+		dot := t.hDotRed
+		if acc.Enabled && t.cfg.MasterToggle {
+			dot = t.hDotGreen
 		}
-		appendStr(hPopup, 0x0010, uintptr(hSubMenu), iconPrefix+acc.Name) // MF_POPUP = 0x0010
+		pSetMenuItemBitmaps.Call(uintptr(hPopup), posIndex, 0x0400, uintptr(dot), uintptr(dot))
+		posIndex++
 	}
 	t.mu.Unlock()
 
-	appendStr(hPopup, 0x0800, 0, "")
+	if hasAccounts {
+		appendStr(hPopup, 0x0800, 0, "")
+	}
 	appendStr(hPopup, 0x0000, idAssociate, "➕ Asociar nueva cuenta...")
+
+	// Submenú Servicio del Sistema (Windows / Autoarranque)
+	hSvc, _, _ := pCreatePopupMenu.Call()
+	hSvcMenu := windows.Handle(hSvc)
+	autoFlag := uintptr(0x0000)
+	if isStartupEnabled() {
+		autoFlag = 0x0008
+	}
+	appendStr(hSvcMenu, autoFlag, idStartupToggle, "Iniciar automáticamente con el sistema")
+	appendStr(hSvcMenu, 0x0800, 0, "")
+	appendStr(hSvcMenu, 0x0000, idSvcInstall, "Instalar y Activar Servicio Windows (2º Plano)")
+	appendStr(hSvcMenu, 0x0000, idSvcStart, "Iniciar Servicio Windows")
+	appendStr(hSvcMenu, 0x0000, idSvcStop, "Detener Servicio Windows")
+	appendStr(hSvcMenu, 0x0000, idSvcUninstall, "Desinstalar Servicio Windows")
+	appendStr(hPopup, 0x0010, uintptr(hSvcMenu), "⚙️ Servicio del Sistema (Autoarranque)")
+
 	appendStr(hPopup, 0x0800, 0, "")
 	appendStr(hPopup, 0x0000, idQuit, "❌ Salir")
 
 	var pt struct{ X, Y int32 }
-	pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
-	pSetForegroundWindow.Call(uintptr(hWnd))
+	u32.NewProc("GetCursorPos").Call(uintptr(unsafe.Pointer(&pt)))
+	u32.NewProc("SetForegroundWindow").Call(uintptr(hWnd))
 
-	cmd, _, _ := pTrackPopupMenu.Call(uintptr(hPopup), 0x0100|0x0002, uintptr(pt.X), uintptr(pt.Y), 0, uintptr(hWnd), 0)
+	cmd, _, _ := u32.NewProc("TrackPopupMenu").Call(uintptr(hPopup), 0x0100|0x0002, uintptr(pt.X), uintptr(pt.Y), 0, uintptr(hWnd), 0)
+	t.handleMenuCommand(cmd, toggleMap, removeMap)
+}
 
+func (t *TrayApp) handleMenuCommand(cmd uintptr, toggleMap, removeMap map[uintptr]int) {
 	if idx, ok := toggleMap[cmd]; ok {
 		t.mu.Lock()
 		t.cfg.Accounts[idx].Enabled = !t.cfg.Accounts[idx].Enabled
@@ -235,33 +246,42 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 		_ = config.SaveConfig(t.configPath, t.cfg)
 		t.mu.Unlock()
 		t.orch.SetAccountEnabled(accID, state)
-		log.Printf("[TRAY] Cuenta '%s' conmutada a: %v\n", accID, state)
+		t.refreshTrayState()
 		return
 	}
-
 	if idx, ok := removeMap[cmd]; ok {
 		t.mu.Lock()
 		accID := t.cfg.Accounts[idx].ID
-		accName := t.cfg.Accounts[idx].Name
 		t.cfg.Accounts = append(t.cfg.Accounts[:idx], t.cfg.Accounts[idx+1:]...)
 		_ = config.SaveConfig(t.configPath, t.cfg)
 		t.mu.Unlock()
 		t.orch.RemoveAccount(accID)
-		log.Printf("[TRAY] Cuenta '%s' (%s) desvinculada y eliminada con éxito.\n", accName, accID)
+		t.refreshTrayState()
 		return
 	}
-
+	exePath, _ := os.Executable()
 	switch cmd {
 	case idMaster:
 		t.cfg.MasterToggle = !t.cfg.MasterToggle
+		_ = config.SaveConfig(t.configPath, t.cfg)
 		t.orch.SetMasterToggle(t.cfg.MasterToggle)
-		t.updateTrayIcon(t.cfg.MasterToggle)
-		log.Printf("[TRAY] Master Toggle -> %v (icono actualizado)\n", t.cfg.MasterToggle)
+		t.refreshTrayState()
 	case idAssociate:
 		t.StartAssociateFlow()
+	case idStartupToggle:
+		setStartupEnabled(!isStartupEnabled(), exePath)
+	case idSvcInstall:
+		runElevatedServiceCmd(exePath, "install")
+		runElevatedServiceCmd(exePath, "start")
+	case idSvcStart:
+		runElevatedServiceCmd(exePath, "start")
+	case idSvcStop:
+		runElevatedServiceCmd(exePath, "stop")
+	case idSvcUninstall:
+		runElevatedServiceCmd(exePath, "stop")
+		runElevatedServiceCmd(exePath, "uninstall")
 	case idQuit:
-		log.Println("[TRAY] Cierre ordenado solicitado.")
 		_ = t.orch.Stop()
-		pPostQuitMessage.Call(0)
+		windows.NewLazySystemDLL("user32.dll").NewProc("PostQuitMessage").Call(0)
 	}
 }

@@ -82,7 +82,7 @@ func (t *TrayApp) StartAssociateFlow() {
 		if t.orch != nil {
 			t.orch.SetAccountEnabled(accID, true)
 		}
-		t.updateTrayIcon(t.cfg.MasterToggle)
+		t.refreshTrayState()
 
 		time.Sleep(1000 * time.Millisecond)
 		splash.Close()
