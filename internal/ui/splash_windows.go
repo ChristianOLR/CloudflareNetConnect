@@ -3,129 +3,217 @@
 package ui
 
 import (
-	"os"
-	"os/exec"
-	"path/filepath"
+	"fmt"
+	"runtime"
 	"sync"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
 type SplashWindow struct {
-	splashURL string
-	cmd       *exec.Cmd
-	mu        sync.Mutex
-	done      chan struct{}
+	authURL      string
+	hWnd         windows.Handle
+	hLogoIcon    windows.Handle
+	mu           sync.Mutex
+	done         chan struct{}
+	closeOnce    sync.Once
+	animTick     int
+	copiedState  bool
+	successState bool
+	statusText   string
 }
 
-func NewSplashWindow(splashURL string) *SplashWindow {
+func NewSplashWindow(authURL string) *SplashWindow {
 	return &SplashWindow{
-		splashURL: splashURL,
-		done:      make(chan struct{}),
+		authURL:    authURL,
+		done:       make(chan struct{}),
+		statusText: "Esperando identificación...",
 	}
 }
 
 func (s *SplashWindow) Show() {
-	go s.launchAppWindow()
+	go s.runNativeFrameless()
+}
+
+func (s *SplashWindow) SetSuccess(accName string) {
+	s.mu.Lock()
+	s.successState = true
+	s.statusText = "✅ ¡Cuenta " + accName + " vinculada!"
+	h := s.hWnd
+	s.mu.Unlock()
+	if h != 0 {
+		windows.NewLazySystemDLL("user32.dll").NewProc("InvalidateRect").Call(uintptr(h), 0, 0)
+	}
 }
 
 func (s *SplashWindow) Close() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.cmd != nil && s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
+	h := s.hWnd
+	s.mu.Unlock()
+	if h != 0 {
+		windows.NewLazySystemDLL("user32.dll").NewProc("PostMessageW").Call(uintptr(h), 0x0010, 0, 0)
 	}
-	select {
-	case <-s.done:
-	default:
-		close(s.done)
-	}
+	s.closeOnce.Do(func() { close(s.done) })
 }
 
 func (s *SplashWindow) Wait() {
 	<-s.done
 }
 
-func (s *SplashWindow) launchAppWindow() {
-	candidates := []string{
-		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Microsoft", "Edge", "Application", "msedge.exe"),
-		filepath.Join(os.Getenv("ProgramFiles"), "Microsoft", "Edge", "Application", "msedge.exe"),
-		filepath.Join(os.Getenv("ProgramFiles"), "Google", "Chrome", "Application", "chrome.exe"),
-		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Google", "Chrome", "Application", "chrome.exe"),
+func (s *SplashWindow) runNativeFrameless() {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	defer s.closeOnce.Do(func() { close(s.done) })
+
+	u32 := windows.NewLazySystemDLL("user32.dll")
+	k32 := windows.NewLazySystemDLL("kernel32.dll")
+	gdi := windows.NewLazySystemDLL("gdi32.dll")
+
+	hInst, _, _ := k32.NewProc("GetModuleHandleW").Call(0)
+	clsName, _ := windows.UTF16PtrFromString(fmt.Sprintf("CFSplashCard_%d", time.Now().UnixNano()))
+
+	type wndClassEx struct {
+		Size, Style                        uint32
+		WndProc                            uintptr
+		ClsExtra, WndExtra                 int32
+		Instance, Icon, Cursor, Background windows.Handle
+		MenuName, ClassName                *uint16
+		IconSm                             windows.Handle
 	}
 
-	var binPath string
-	for _, c := range candidates {
-		if _, err := os.Stat(c); err == nil {
-			binPath = c
-			break
-		}
-	}
+	hCursor, _, _ := u32.NewProc("LoadCursorW").Call(0, 32512) // IDC_ARROW
 
-	userDataDir := filepath.Join(os.TempDir(), "CloudflareNetConnect_SplashUI")
-	_ = os.MkdirAll(userDataDir, 0700)
+	wcex := &wndClassEx{
+		Size: 80,
+		WndProc: windows.NewCallback(func(hWnd windows.Handle, msg uint32, wp, lp uintptr) uintptr {
+			switch msg {
+			case 0x0014: // WM_ERASEBKGND
+				return 1
+			case 0x000F: // WM_PAINT
+				s.paintCard(hWnd)
+				return 0
+			case 0x0113: // WM_TIMER
+				s.mu.Lock()
+				s.animTick++
+				if !s.successState {
+					dots := (s.animTick / 10) % 4
+					dStr := ""
+					for i := 0; i < dots; i++ {
+						dStr += "."
+					}
+					s.statusText = "Esperando identificación" + dStr
+				}
+				s.mu.Unlock()
+				u32.NewProc("InvalidateRect").Call(uintptr(hWnd), 0, 0)
+				return 0
+			case 0x0201: // WM_LBUTTONDOWN
+				x := int32(lp & 0xFFFF)
+				y := int32((lp >> 16) & 0xFFFF)
+				// Botón Copiar: [32..348, 234..278]
+				if x >= 32 && x <= 348 && y >= 234 && y <= 278 {
+					CopyToClipboard(s.authURL)
+					s.mu.Lock()
+					s.copiedState = true
+					s.mu.Unlock()
+					u32.NewProc("InvalidateRect").Call(uintptr(hWnd), 0, 0)
+					go func() {
+						time.Sleep(3 * time.Second)
+						s.mu.Lock()
+						s.copiedState = false
+						s.mu.Unlock()
+					}()
+					return 0
+				}
+				// Botón Cancelar: [125..255, 294..328]
+				if x >= 125 && x <= 255 && y >= 294 && y <= 328 {
+					u32.NewProc("DestroyWindow").Call(uintptr(hWnd))
+					return 0
+				}
+				// Arrastrar ventana desde cualquier otro punto
+				u32.NewProc("ReleaseCapture").Call()
+				u32.NewProc("SendMessageW").Call(uintptr(hWnd), 0x00A1, 2, 0) // WM_NCLBUTTONDOWN, HTCAPTION
+				return 0
+			case 0x0002: // WM_DESTROY
+				u32.NewProc("KillTimer").Call(uintptr(hWnd), 1)
+				u32.NewProc("PostQuitMessage").Call(0)
+				return 0
+			}
+			r, _, _ := u32.NewProc("DefWindowProcW").Call(uintptr(hWnd), uintptr(msg), wp, lp)
+			return r
+		}),
+		Instance:  windows.Handle(hInst),
+		Cursor:    windows.Handle(hCursor),
+		ClassName: clsName,
+	}
+	u32.NewProc("RegisterClassExW").Call(uintptr(unsafe.Pointer(wcex)))
+
+	w, h := uintptr(380), uintptr(360)
+	scrW, _, _ := u32.NewProc("GetSystemMetrics").Call(0)
+	scrH, _, _ := u32.NewProc("GetSystemMetrics").Call(1)
+	posX := (scrW - w) / 2
+	posY := (scrH - h) / 2
+
+	title, _ := windows.UTF16PtrFromString("CloudflareNetConnect")
+	// WS_POPUP (0x80000000) | WS_VISIBLE (0x10000000), WS_EX_TOPMOST (0x00000008) | WS_EX_TOOLWINDOW (0x00000080)
+	hWin, _, _ := u32.NewProc("CreateWindowExW").Call(
+		0x00000008,
+		uintptr(unsafe.Pointer(clsName)),
+		uintptr(unsafe.Pointer(title)),
+		0x80000000|0x10000000,
+		posX, posY, w, h,
+		0, 0, hInst, 0,
+	)
+
+	// Aplicar recorte redondeado nativo al marco
+	hRgn, _, _ := gdi.NewProc("CreateRoundRectRgn").Call(0, 0, w+1, h+1, 24, 24)
+	u32.NewProc("SetWindowRgn").Call(hWin, hRgn, 1)
 
 	s.mu.Lock()
-	if binPath != "" {
-		s.cmd = exec.Command(
-			binPath,
-			"--app="+s.splashURL,
-			"--window-size=410,490",
-			"--window-position=460,220",
-			"--user-data-dir="+userDataDir,
-			"--no-first-run",
-			"--no-default-browser-check",
-			"--disable-extensions",
-		)
-	} else {
-		s.cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", s.splashURL)
-	}
-	_ = s.cmd.Start()
+	s.hWnd = windows.Handle(hWin)
 	s.mu.Unlock()
 
-	if s.cmd != nil {
-		_ = s.cmd.Wait()
+	u32.NewProc("SetTimer").Call(hWin, 1, 45, 0) // ~22 FPS animación suave
+
+	type msg struct {
+		HWnd    windows.Handle
+		Message uint32
+		WParam  uintptr
+		LParam  uintptr
+		Time    uint32
+		Pt      struct{ X, Y int32 }
 	}
-	s.Close()
+	var m msg
+	for {
+		ret, _, _ := u32.NewProc("GetMessageW").Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
+		if int32(ret) <= 0 {
+			break
+		}
+		u32.NewProc("TranslateMessage").Call(uintptr(unsafe.Pointer(&m)))
+		u32.NewProc("DispatchMessageW").Call(uintptr(unsafe.Pointer(&m)))
+	}
 }
 
-// CopyToClipboard copia texto al portapapeles nativo de Windows.
 func CopyToClipboard(text string) {
 	u32 := windows.NewLazySystemDLL("user32.dll")
 	k32 := windows.NewLazySystemDLL("kernel32.dll")
-	pOpenClipboard := u32.NewProc("OpenClipboard")
-	pEmptyClipboard := u32.NewProc("EmptyClipboard")
-	pSetClipboardData := u32.NewProc("SetClipboardData")
-	pCloseClipboard := u32.NewProc("CloseClipboard")
-	pGlobalAlloc := k32.NewProc("GlobalAlloc")
-	pGlobalLock := k32.NewProc("GlobalLock")
-	pGlobalUnlock := k32.NewProc("GlobalUnlock")
-
-	r, _, _ := pOpenClipboard.Call(0)
+	r, _, _ := u32.NewProc("OpenClipboard").Call(0)
 	if r == 0 {
 		return
 	}
-	defer pCloseClipboard.Call()
-	pEmptyClipboard.Call()
+	defer u32.NewProc("CloseClipboard").Call()
+	u32.NewProc("EmptyClipboard").Call()
 
 	utf16, _ := windows.UTF16FromString(text)
-	bytesCount := len(utf16) * 2
-
-	hMem, _, _ := pGlobalAlloc.Call(0x0042, uintptr(bytesCount))
+	hMem, _, _ := k32.NewProc("GlobalAlloc").Call(0x0042, uintptr(len(utf16)*2))
 	if hMem == 0 {
 		return
 	}
-	ptr, _, _ := pGlobalLock.Call(hMem)
+	ptr, _, _ := k32.NewProc("GlobalLock").Call(hMem)
 	if ptr != 0 {
-		dst := unsafe.Slice((*uint16)(unsafe.Pointer(ptr)), len(utf16))
-		copy(dst, utf16)
-		pGlobalUnlock.Call(hMem)
-		pSetClipboardData.Call(13, hMem) // CF_UNICODETEXT
+		copy(unsafe.Slice((*uint16)(unsafe.Pointer(ptr)), len(utf16)), utf16)
+		k32.NewProc("GlobalUnlock").Call(hMem)
+		u32.NewProc("SetClipboardData").Call(13, hMem)
 	}
-}
-
-// OpenBrowserURL abre una URL en el navegador predeterminado de Windows solo bajo petición explícita.
-func OpenBrowserURL(url string) {
-	_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
 }

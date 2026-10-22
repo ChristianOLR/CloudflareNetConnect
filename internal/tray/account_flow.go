@@ -15,16 +15,16 @@ import (
 func (t *TrayApp) StartAssociateFlow() {
 	log.Println("[AUTH-FLOW] Iniciando flujo de vinculación de nueva cuenta (Cloudflare Argo Transfer)...")
 
-	cs, err := auth.NewCallbackServer(ui.RenderSplashHTML, ui.CopyToClipboard, ui.OpenBrowserURL)
+	cs, err := auth.NewCallbackServer()
 	if err != nil {
-		log.Printf("[AUTH-FLOW] Error iniciando servidor callback: %v\n", err)
+		log.Printf("[AUTH-FLOW] Error iniciando transferencia Argo: %v\n", err)
 		return
 	}
 
-	splash := ui.NewSplashWindow(cs.GetSplashURL())
+	splash := ui.NewSplashWindow(cs.GetAuthURL())
 	splash.Show()
 
-	// Si el usuario cierra la ventana del Splash manualmente, abortamos la espera
+	// Si el usuario cierra o cancela la tarjeta Splash, abortamos el polling
 	go func() {
 		splash.Wait()
 		cs.Close()
@@ -44,7 +44,7 @@ func (t *TrayApp) StartAssociateFlow() {
 		accID, accName := client.ResolveAccountInfo(res.AccountID, res.ZoneID)
 		log.Printf("[AUTH-FLOW] ✅ Cuenta identificada: %s (ID: %s)\n", accName, accID)
 
-		cs.SetAccountLinked(accName)
+		splash.SetSuccess(accName)
 
 		t.mu.Lock()
 		exists := false
@@ -85,7 +85,7 @@ func (t *TrayApp) StartAssociateFlow() {
 		}
 		t.updateTrayIcon(t.cfg.MasterToggle)
 
-		time.Sleep(1100 * time.Millisecond)
+		time.Sleep(1000 * time.Millisecond)
 		splash.Close()
 		cs.Close()
 	}()
