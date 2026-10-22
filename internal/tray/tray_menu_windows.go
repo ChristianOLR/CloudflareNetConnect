@@ -45,14 +45,11 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 
 	masterLabel := "⚡ Activar Servicio de Túneles (Actualmente OFF)"
 	masterFlag := uintptr(0x0000)
-	masterDot := t.hDotRed
 	if t.cfg.MasterToggle {
 		masterLabel = "⚡ Servicio de Túneles Activo (Clic para Desactivar)"
 		masterFlag = 0x0008
-		masterDot = t.hDotGreen
 	}
 	appendStr(hPopup, masterFlag, idMaster, masterLabel)
-	pSetMenuItemBitmaps.Call(uintptr(hPopup), idMaster, 0, uintptr(masterDot), uintptr(masterDot))
 	appendStr(hPopup, 0x0800, 0, "")
 
 	t.mu.Lock()
@@ -99,15 +96,12 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 	hSvc, _, _ := pCreatePopupMenu.Call()
 	hSvcMenu := windows.Handle(hSvc)
 
-	// 1. Autoarranque en inicio de sesión (Bandeja)
+	// 1. Autoarranque en inicio de sesión (Bandeja con check nativo)
 	autoFlag := uintptr(0x0000)
-	startupDot := t.hDotRed
 	if isStartupEnabled() {
 		autoFlag = 0x0008 // MF_CHECKED
-		startupDot = t.hDotGreen
 	}
 	appendStr(hSvcMenu, autoFlag, idStartupToggle, "Iniciar aplicación al encender el PC")
-	pSetMenuItemBitmaps.Call(uintptr(hSvcMenu), idStartupToggle, 0, uintptr(startupDot), uintptr(startupDot))
 	appendStr(hSvcMenu, 0x0800, 0, "") // Separador
 
 	// 2. Estado del Servicio de Windows (Segundo plano real / Daemon)
