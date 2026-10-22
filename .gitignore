@@ -1,0 +1,9 @@
+# Binarios y compilaciones
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Configuraciones locales con credenciales
+config/netconnect.json
