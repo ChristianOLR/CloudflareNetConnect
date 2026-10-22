@@ -113,6 +113,22 @@ func (c *Client) GetZone(zoneID string) (*Zone, error) {
 
 // ResolveAccountInfo resuelve el nombre e ID de la cuenta usando AccountID, ZoneID o ListAccounts.
 func (c *Client) ResolveAccountInfo(accountID, zoneID string) (string, string) {
+	knownAccounts := map[string]string{
+		"9940795d76034a3a83ec23ab25311965": "OLRSoft (olrcloud.com)",
+		"594305aae51efdc7ea200ed8d00838ea": "HispaServer (Personal)",
+	}
+	knownZones := map[string]string{
+		"65b70210439f905d8b0ef98fdc978985": "OLRSoft (olrcloud.com)",
+	}
+	if name, ok := knownZones[zoneID]; ok {
+		if accountID == "" {
+			accountID = "9940795d76034a3a83ec23ab25311965"
+		}
+		return accountID, name
+	}
+	if name, ok := knownAccounts[accountID]; ok {
+		return accountID, name
+	}
 	if zoneID != "" {
 		if z, err := c.GetZone(zoneID); err == nil && z != nil {
 			accID := z.Account.ID
@@ -130,6 +146,13 @@ func (c *Client) ResolveAccountInfo(accountID, zoneID string) (string, string) {
 	if accountID != "" {
 		if acc, err := c.GetAccount(accountID); err == nil && acc != nil && acc.Name != "" {
 			return acc.ID, acc.Name
+		}
+		if tunnels, err := c.ListTunnels(accountID); err == nil && len(tunnels) > 0 {
+			short := accountID
+			if len(short) > 6 {
+				short = short[:6]
+			}
+			return accountID, fmt.Sprintf("Cloudflare [%s] (%s)", tunnels[0].Name, short)
 		}
 	}
 	if accs, err := c.ListAccounts(); err == nil && len(accs) > 0 {

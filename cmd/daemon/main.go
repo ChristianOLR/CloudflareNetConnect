@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -19,8 +18,14 @@ func main() {
 	if err == nil {
 		baseDir = filepath.Dir(exePath)
 	}
-	defaultConfig := filepath.Join(baseDir, "config", "netconnect.json")
 
+	logFile, err := os.OpenFile(filepath.Join(baseDir, "netconnect.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err == nil {
+		log.SetOutput(logFile)
+		defer logFile.Close()
+	}
+
+	defaultConfig := filepath.Join(baseDir, "config", "netconnect.json")
 	configPath := flag.String("config", defaultConfig, "Ruta al config")
 	serviceAction := flag.String("service", "", "Acción: install, uninstall, start, stop, restart, status")
 	flag.Parse()
@@ -43,7 +48,6 @@ func main() {
 		return
 	}
 
-	// Si se ejecuta como servicio en segundo plano (Session 0)
 	if len(flag.Args()) > 0 && flag.Args()[0] == "run" {
 		if err := svc.Run(); err != nil {
 			log.Fatalf("[FATAL] Error en ejecución de servicio: %v", err)
@@ -51,8 +55,7 @@ func main() {
 		return
 	}
 
-	// Modo interactivo con bandeja del sistema (System Tray nativo)
-	fmt.Println("=== CloudflareNetConnect - Modo Bandeja del Sistema (Tray) ===")
+	log.Println("=== CloudflareNetConnect - Modo Bandeja del Sistema (Tray) ===")
 	if err := orch.Start(); err != nil {
 		log.Fatalf("[FATAL] Error al iniciar orquestador: %v", err)
 	}

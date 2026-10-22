@@ -25,9 +25,9 @@ type CallbackServer struct {
 	once     sync.Once
 }
 
-// NewCallbackServer genera la clave efímera y lanza el long-polling hacia Cloudflare.
+// NewCallbackServer genera la clave efímera Curve25519 y lanza el long-polling hacia Cloudflare.
 func NewCallbackServer() (*CallbackServer, error) {
-	pubKey, err := generateTransferKey()
+	kp, pubKey, err := generateTransferKeyPair()
 	if err != nil {
 		return nil, fmt.Errorf("error generando clave de transferencia: %w", err)
 	}
@@ -43,7 +43,7 @@ func NewCallbackServer() (*CallbackServer, error) {
 		cancel:   cancel,
 	}
 
-	go cs.pollCloudflareTransfer(pubKey)
+	go cs.pollCloudflareTransfer(kp, pubKey)
 	return cs, nil
 }
 

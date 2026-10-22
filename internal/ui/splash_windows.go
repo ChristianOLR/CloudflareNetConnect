@@ -4,6 +4,7 @@ package ui
 
 import (
 	"fmt"
+	"os/exec"
 	"runtime"
 	"sync"
 	"time"
@@ -83,7 +84,7 @@ func (s *SplashWindow) runNativeFrameless() {
 		IconSm                             windows.Handle
 	}
 
-	hCursor, _, _ := u32.NewProc("LoadCursorW").Call(0, 32512) // IDC_ARROW
+	hCursor, _, _ := u32.NewProc("LoadCursorW").Call(0, 32512)
 
 	wcex := &wndClassEx{
 		Size: 80,
@@ -111,8 +112,8 @@ func (s *SplashWindow) runNativeFrameless() {
 			case 0x0201: // WM_LBUTTONDOWN
 				x := int32(lp & 0xFFFF)
 				y := int32((lp >> 16) & 0xFFFF)
-				// Botón Copiar: [32..348, 234..278]
-				if x >= 32 && x <= 348 && y >= 234 && y <= 278 {
+				// Botón 1: Copiar Enlace [32..348, 224..268]
+				if x >= 32 && x <= 348 && y >= 224 && y <= 268 {
 					CopyToClipboard(s.authURL)
 					s.mu.Lock()
 					s.copiedState = true
@@ -126,14 +127,19 @@ func (s *SplashWindow) runNativeFrameless() {
 					}()
 					return 0
 				}
-				// Botón Cancelar: [125..255, 294..328]
-				if x >= 125 && x <= 255 && y >= 294 && y <= 328 {
+				// Botón 2: Abrir en Navegador [32..348, 280..322]
+				if x >= 32 && x <= 348 && y >= 280 && y <= 322 {
+					_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", s.authURL).Start()
+					return 0
+				}
+				// Botón 3: Cancelar [125..255, 340..374]
+				if x >= 125 && x <= 255 && y >= 340 && y <= 374 {
 					u32.NewProc("DestroyWindow").Call(uintptr(hWnd))
 					return 0
 				}
-				// Arrastrar ventana desde cualquier otro punto
+				// Arrastrar ventana desde cualquier punto libre
 				u32.NewProc("ReleaseCapture").Call()
-				u32.NewProc("SendMessageW").Call(uintptr(hWnd), 0x00A1, 2, 0) // WM_NCLBUTTONDOWN, HTCAPTION
+				u32.NewProc("SendMessageW").Call(uintptr(hWnd), 0x00A1, 2, 0)
 				return 0
 			case 0x0002: // WM_DESTROY
 				u32.NewProc("KillTimer").Call(uintptr(hWnd), 1)
@@ -149,14 +155,13 @@ func (s *SplashWindow) runNativeFrameless() {
 	}
 	u32.NewProc("RegisterClassExW").Call(uintptr(unsafe.Pointer(wcex)))
 
-	w, h := uintptr(380), uintptr(360)
+	w, h := uintptr(380), uintptr(410)
 	scrW, _, _ := u32.NewProc("GetSystemMetrics").Call(0)
 	scrH, _, _ := u32.NewProc("GetSystemMetrics").Call(1)
 	posX := (scrW - w) / 2
 	posY := (scrH - h) / 2
 
 	title, _ := windows.UTF16PtrFromString("CloudflareNetConnect")
-	// WS_POPUP (0x80000000) | WS_VISIBLE (0x10000000), WS_EX_TOPMOST (0x00000008) | WS_EX_TOOLWINDOW (0x00000080)
 	hWin, _, _ := u32.NewProc("CreateWindowExW").Call(
 		0x00000008,
 		uintptr(unsafe.Pointer(clsName)),
@@ -166,7 +171,6 @@ func (s *SplashWindow) runNativeFrameless() {
 		0, 0, hInst, 0,
 	)
 
-	// Aplicar recorte redondeado nativo al marco
 	hRgn, _, _ := gdi.NewProc("CreateRoundRectRgn").Call(0, 0, w+1, h+1, 24, 24)
 	u32.NewProc("SetWindowRgn").Call(hWin, hRgn, 1)
 
@@ -174,7 +178,7 @@ func (s *SplashWindow) runNativeFrameless() {
 	s.hWnd = windows.Handle(hWin)
 	s.mu.Unlock()
 
-	u32.NewProc("SetTimer").Call(hWin, 1, 45, 0) // ~22 FPS animación suave
+	u32.NewProc("SetTimer").Call(hWin, 1, 45, 0)
 
 	type msg struct {
 		HWnd    windows.Handle
