@@ -3,6 +3,7 @@
 package tray
 
 import (
+	"fmt"
 	"log"
 	"time"
 
@@ -12,19 +13,18 @@ import (
 	"github.com/olrsoft/cloudflarenetconnect/internal/ui"
 )
 
-func (t *TrayApp) StartAssociateFlow() {
-	log.Println("[AUTH-FLOW] Iniciando flujo de vinculación de nueva cuenta (Cloudflare Argo Transfer)...")
+func (t *TrayApp) StartAssociateFlow(presetKey string) {
+	log.Printf("[AUTH-FLOW] Iniciando flujo de vinculación (preset='%s')...\n", presetKey)
 
-	cs, err := auth.NewCallbackServer()
+	cs, err := auth.NewCallbackServer(presetKey)
 	if err != nil {
-		log.Printf("[AUTH-FLOW] Error iniciando transferencia Argo: %v\n", err)
+		log.Printf("[AUTH-FLOW] Error iniciando transferencia: %v\n", err)
 		return
 	}
 
 	splash := ui.NewSplashWindow(cs.GetAuthURL())
 	splash.Show()
 
-	// Si el usuario cierra o cancela la tarjeta Splash, abortamos el polling
 	go func() {
 		splash.Wait()
 		cs.Close()
@@ -39,9 +39,15 @@ func (t *TrayApp) StartAssociateFlow() {
 			return
 		}
 
-		log.Println("[AUTH-FLOW] Credencial recibida. Resolviendo detalles de organización en Cloudflare API...")
-		client := cloudflare.NewClient(res.Token)
-		accID, accName := client.ResolveAccountInfo(res.AccountID, res.ZoneID)
+		accID := res.AccountID
+		accName := res.AccountName
+		if accName != "" && res.UserEmail != "" {
+			accName = fmt.Sprintf("%s [%s]", res.AccountName, res.UserEmail)
+		}
+		if accName == "" {
+			client := cloudflare.NewClient(res.Token)
+			accID, accName = client.ResolveAccountInfo(res.AccountID, res.ZoneID)
+		}
 		log.Printf("[AUTH-FLOW] ✅ Cuenta identificada: %s (ID: %s)\n", accName, accID)
 
 		splash.SetSuccess(accName)
@@ -51,6 +57,7 @@ func (t *TrayApp) StartAssociateFlow() {
 		for i, a := range t.cfg.Accounts {
 			if a.AccountID == accID || (a.Name == accName && accName != "") {
 				t.cfg.Accounts[i].APIToken = res.Token
+				t.cfg.Accounts[i].Name = accName
 				t.cfg.Accounts[i].Enabled = true
 				exists = true
 				break
@@ -62,13 +69,24 @@ func (t *TrayApp) StartAssociateFlow() {
 			if len(shortID) > 8 {
 				shortID = shortID[:8]
 			}
+			var defaultRoutes []config.TunnelRoute
+			if presetKey == "olrsoft" || accID == "9940795d76034a3a83ec23ab25311965" {
+				defaultRoutes = []config.TunnelRoute{
+					{
+						Hostname:  "syncnetdb.olrcloud.com",
+						LocalPort: 5432,
+						Protocol:  "tcp",
+						Enabled:   true,
+					},
+				}
+			}
 			newAcc := config.AccountConfig{
 				ID:        shortID,
 				Name:      accName,
 				AccountID: accID,
 				APIToken:  res.Token,
 				Enabled:   true,
-				Routes:    []config.TunnelRoute{},
+				Routes:    defaultRoutes,
 			}
 			t.cfg.Accounts = append(t.cfg.Accounts, newAcc)
 		}

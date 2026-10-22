@@ -7,12 +7,14 @@ import (
 	"time"
 )
 
-// AuthResult contiene el resultado de la autenticación Argo.
+// AuthResult contiene el resultado de la autenticación Argo o SSO Zero Trust.
 type AuthResult struct {
-	Token     string
-	AccountID string
-	ZoneID    string
-	Error     error
+	Token       string
+	AccountID   string
+	AccountName string
+	UserEmail   string
+	ZoneID      string
+	Error       error
 }
 
 // CallbackServer gestiona el polling oficial hacia login.cloudflareaccess.org sin abrir puertos locales.
@@ -25,14 +27,20 @@ type CallbackServer struct {
 	once     sync.Once
 }
 
-// NewCallbackServer genera la clave efímera Curve25519 y lanza el long-polling hacia Cloudflare.
-func NewCallbackServer() (*CallbackServer, error) {
+// NewCallbackServer genera la clave efímera Curve25519 y lanza el long-polling hacia Cloudflare (SSO o Argo).
+func NewCallbackServer(presetKey string) (*CallbackServer, error) {
 	kp, pubKey, err := generateTransferKeyPair()
 	if err != nil {
 		return nil, fmt.Errorf("error generando clave de transferencia: %w", err)
 	}
 
+	var preset *AccessPreset
 	authURL := buildArgoLoginURL(pubKey)
+	if p, ok := Presets[presetKey]; ok {
+		preset = &p
+		authURL = buildAccessSSOURL(p.AppHost, p.AppAUD, pubKey)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	cs := &CallbackServer{
@@ -43,7 +51,7 @@ func NewCallbackServer() (*CallbackServer, error) {
 		cancel:   cancel,
 	}
 
-	go cs.pollCloudflareTransfer(kp, pubKey)
+	go cs.pollCloudflareTransfer(kp, pubKey, preset)
 	return cs, nil
 }
 
