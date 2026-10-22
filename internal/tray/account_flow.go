@@ -13,49 +13,44 @@ import (
 )
 
 func (t *TrayApp) StartAssociateFlow() {
-	log.Println("[AUTH-FLOW] Iniciando flujo de vinculación de nueva cuenta...")
+	log.Println("[AUTH-FLOW] Iniciando flujo de vinculación de nueva cuenta (Cloudflare Argo Transfer)...")
 
-	cs, err := auth.NewCallbackServer()
+	cs, err := auth.NewCallbackServer(ui.RenderSplashHTML, ui.CopyToClipboard, ui.OpenBrowserURL)
 	if err != nil {
 		log.Printf("[AUTH-FLOW] Error iniciando servidor callback: %v\n", err)
 		return
 	}
 
-	authURL := cs.GetAuthURL()
-	splash := ui.NewSplashWindow(authURL)
+	splash := ui.NewSplashWindow(cs.GetSplashURL())
 	splash.Show()
 
+	// Si el usuario cierra la ventana del Splash manualmente, abortamos la espera
 	go func() {
-		token, err := cs.WaitForToken(5 * time.Minute)
-		splash.Close()
+		splash.Wait()
+		cs.Close()
+	}()
 
-		if err != nil {
-			log.Printf("[AUTH-FLOW] Error en autenticación: %v\n", err)
+	go func() {
+		res, err := cs.WaitForToken(8 * time.Minute)
+		if err != nil || res.Token == "" {
+			log.Printf("[AUTH-FLOW] Flujo finalizado sin token: %v\n", err)
+			splash.Close()
+			cs.Close()
 			return
 		}
 
-		if token == "" {
-			log.Println("[AUTH-FLOW] Token vacío recibido.")
-			return
-		}
+		log.Println("[AUTH-FLOW] Credencial recibida. Resolviendo detalles de organización en Cloudflare API...")
+		client := cloudflare.NewClient(res.Token)
+		accID, accName := client.ResolveAccountInfo(res.AccountID, res.ZoneID)
+		log.Printf("[AUTH-FLOW] ✅ Cuenta identificada: %s (ID: %s)\n", accName, accID)
 
-		log.Println("[AUTH-FLOW] Token recibido. Consultando organizaciones en Cloudflare API...")
-		client := cloudflare.NewClient(token)
-		accounts, err := client.ListAccounts()
-		if err != nil || len(accounts) == 0 {
-			log.Printf("[AUTH-FLOW] No se pudieron listar cuentas con el token: %v\n", err)
-			return
-		}
-
-		primary := accounts[0]
-		log.Printf("[AUTH-FLOW] ✅ Cuenta identificada: %s (ID: %s)\n", primary.Name, primary.ID)
+		cs.SetAccountLinked(accName)
 
 		t.mu.Lock()
-		// Verificar si ya existe
 		exists := false
 		for i, a := range t.cfg.Accounts {
-			if a.AccountID == primary.ID {
-				t.cfg.Accounts[i].APIToken = token
+			if a.AccountID == accID || (a.Name == accName && accName != "") {
+				t.cfg.Accounts[i].APIToken = res.Token
 				t.cfg.Accounts[i].Enabled = true
 				exists = true
 				break
@@ -63,11 +58,15 @@ func (t *TrayApp) StartAssociateFlow() {
 		}
 
 		if !exists {
+			shortID := accID
+			if len(shortID) > 8 {
+				shortID = shortID[:8]
+			}
 			newAcc := config.AccountConfig{
-				ID:        primary.ID[:8],
-				Name:      primary.Name,
-				AccountID: primary.ID,
-				APIToken:  token,
+				ID:        shortID,
+				Name:      accName,
+				AccountID: accID,
+				APIToken:  res.Token,
 				Enabled:   true,
 				Routes:    []config.TunnelRoute{},
 			}
@@ -80,5 +79,14 @@ func (t *TrayApp) StartAssociateFlow() {
 		} else {
 			log.Println("[AUTH-FLOW] Configuración actualizada en disco con la nueva cuenta.")
 		}
+
+		if t.orch != nil {
+			t.orch.SetAccountEnabled(accID, true)
+		}
+		t.updateTrayIcon(t.cfg.MasterToggle)
+
+		time.Sleep(1100 * time.Millisecond)
+		splash.Close()
+		cs.Close()
 	}()
 }

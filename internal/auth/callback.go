@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -9,124 +10,171 @@ import (
 	"time"
 )
 
-// AuthResult contiene el resultado de la autenticación.
+// AuthResult contiene el resultado de la autenticación Argo o manual.
 type AuthResult struct {
-	Token string
-	Error error
+	Token     string
+	AccountID string
+	ZoneID    string
+	Error     error
 }
 
-// CallbackServer gestiona la captura efímera del token OAuth/API.
+// CallbackServer gestiona el polling de Cloudflare Argo y sirve la UI del Splash.
 type CallbackServer struct {
-	listener net.Listener
-	server   *http.Server
-	port     int
-	resultCh chan AuthResult
-	once     sync.Once
+	listener   net.Listener
+	server     *http.Server
+	port       int
+	authURL    string
+	splashHTML string
+	onCopy     func(string)
+	onOpenURL  func(string)
+	resultCh   chan AuthResult
+	stopCh     chan struct{}
+	ctx        context.Context
+	cancel     context.CancelFunc
+	once       sync.Once
+	mu         sync.RWMutex
+	done       bool
+	accName    string
+	errMsg     string
 }
 
-// NewCallbackServer inicia un listener en un puerto local efímero.
-func NewCallbackServer() (*CallbackServer, error) {
+// NewCallbackServer inicia el servidor local efímero y el polling hacia login.cloudflareaccess.org.
+func NewCallbackServer(splashHTMLFn func(authURL string) string, onCopy, onOpenURL func(string)) (*CallbackServer, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return nil, fmt.Errorf("error al abrir puerto local para callback: %w", err)
+		return nil, fmt.Errorf("error al abrir puerto local: %w", err)
 	}
+
+	pubKey, err := generateTransferKey()
+	if err != nil {
+		_ = listener.Close()
+		return nil, fmt.Errorf("error generando clave de transferencia: %w", err)
+	}
+
+	authURL := buildArgoLoginURL(pubKey)
+	ctx, cancel := context.WithCancel(context.Background())
 
 	port := listener.Addr().(*net.TCPAddr).Port
 	cs := &CallbackServer{
-		listener: listener,
-		port:     port,
-		resultCh: make(chan AuthResult, 1),
+		listener:   listener,
+		port:       port,
+		authURL:    authURL,
+		splashHTML: splashHTMLFn(authURL),
+		onCopy:     onCopy,
+		onOpenURL:  onOpenURL,
+		resultCh:   make(chan AuthResult, 1),
+		stopCh:     make(chan struct{}),
+		ctx:        ctx,
+		cancel:     cancel,
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/callback", cs.handleCallback)
+	mux.HandleFunc("/splash", cs.handleSplash)
+	mux.HandleFunc("/status", cs.handleStatus)
+	mux.HandleFunc("/copy", cs.handleCopy)
+	mux.HandleFunc("/open-browser", cs.handleOpenBrowser)
+	mux.HandleFunc("/cancel", cs.handleCancel)
+	mux.HandleFunc("/manual-token", cs.handleManualToken)
 
 	cs.server = &http.Server{
 		Handler:      mux,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
 	}
 
-	go func() {
-		_ = cs.server.Serve(listener)
-	}()
+	go func() { _ = cs.server.Serve(listener) }()
+	go cs.pollCloudflareTransfer(pubKey)
 
 	return cs, nil
 }
 
-// GetPort devuelve el puerto asignado.
-func (cs *CallbackServer) GetPort() int {
-	return cs.port
+func (cs *CallbackServer) GetSplashURL() string {
+	return fmt.Sprintf("http://127.0.0.1:%d/splash", cs.port)
 }
 
-// GetAuthURL genera la URL para autenticación con el redirect_uri configurado.
 func (cs *CallbackServer) GetAuthURL() string {
-	return fmt.Sprintf("https://dash.cloudflare.com/profile/api-tokens?redirect_uri=http://localhost:%d/callback", cs.port)
+	return cs.authURL
 }
 
-// WaitForToken espera hasta recibir el token o que transcurra el timeout (5 min).
-func (cs *CallbackServer) WaitForToken(timeout time.Duration) (string, error) {
-	defer cs.Close()
+func (cs *CallbackServer) SetAccountLinked(name string) {
+	cs.mu.Lock()
+	cs.accName = name
+	cs.done = true
+	cs.mu.Unlock()
+}
 
+func (cs *CallbackServer) WaitForToken(timeout time.Duration) (AuthResult, error) {
 	select {
 	case res := <-cs.resultCh:
-		return res.Token, res.Error
+		return res, res.Error
 	case <-time.After(timeout):
-		return "", fmt.Errorf("tiempo de espera agotado (timeout) esperando autenticación")
+		cs.Close()
+		return AuthResult{}, fmt.Errorf("tiempo de espera agotado (timeout)")
 	}
 }
 
-func (cs *CallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) {
-	token := r.URL.Query().Get("token")
-	if token == "" {
-		token = r.URL.Query().Get("code")
-	}
-
+func (cs *CallbackServer) handleSplash(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if token != "" {
-		fmt.Fprint(w, `
-			<!DOCTYPE html>
-			<html>
-			<head><title>CloudflareNetConnect</title><style>body{font-family:sans-serif;background:#0f172a;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;margin:0} .card{background:#1e293b;padding:2rem;border-radius:12px;text-align:center;box-shadow:0 10px 25px rgba(0,0,0,0.5)} h1{color:#f38020;margin-bottom:0.5rem}</style></head>
-			<body>
-				<div class="card">
-					<h1>☁️ CloudflareNetConnect</h1>
-					<p>¡Cuenta identificada con éxito!</p>
-					<small style="color:#94a3b8">Puedes cerrar esta ventana y regresar a tu escritorio.</small>
-				</div>
-			</body>
-			</html>
-		`)
-		cs.emitResult(token, nil)
-	} else {
-		// Formulario de inserción rápida si el proveedor no inyectó token directo por querystring
-		fmt.Fprint(w, `
-			<!DOCTYPE html>
-			<html>
-			<head><title>CloudflareNetConnect - Vincular</title><style>body{font-family:sans-serif;background:#0f172a;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;margin:0} .card{background:#1e293b;padding:2rem;border-radius:12px;text-align:center;width:340px} h1{color:#f38020} input{width:90%;padding:10px;margin:15px 0;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#fff} button{background:#f38020;color:#fff;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;font-weight:bold}</style></head>
-			<body>
-				<div class="card">
-					<h1>☁️ Vincular Token</h1>
-					<p style="font-size:0.9rem;color:#94a3b8">Introduce tu API Token de Cloudflare:</p>
-					<form method="GET" action="/callback">
-						<input type="password" name="token" placeholder="Bearer Token" required />
-						<button type="submit">Vincular Cuenta</button>
-					</form>
-				</div>
-			</body>
-			</html>
-		`)
-	}
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = fmt.Fprint(w, cs.splashHTML)
 }
 
-func (cs *CallbackServer) emitResult(token string, err error) {
+func (cs *CallbackServer) handleStatus(w http.ResponseWriter, r *http.Request) {
+	cs.mu.RLock()
+	resp := map[string]any{
+		"done":    cs.done,
+		"account": cs.accName,
+		"error":   cs.errMsg,
+	}
+	cs.mu.RUnlock()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (cs *CallbackServer) handleCopy(w http.ResponseWriter, r *http.Request) {
+	if cs.onCopy != nil {
+		cs.onCopy(cs.authURL)
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"ok":true}`))
+}
+
+func (cs *CallbackServer) handleOpenBrowser(w http.ResponseWriter, r *http.Request) {
+	if cs.onOpenURL != nil {
+		cs.onOpenURL(cs.authURL)
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"ok":true}`))
+}
+
+func (cs *CallbackServer) handleCancel(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	cs.emitResult(AuthResult{Error: fmt.Errorf("cancelado por el usuario")})
+}
+
+func (cs *CallbackServer) handleManualToken(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Token string `json:"token"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if body.Token != "" {
+		cs.emitResult(AuthResult{Token: body.Token})
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	w.WriteHeader(http.StatusBadRequest)
+}
+
+func (cs *CallbackServer) emitResult(res AuthResult) {
 	cs.once.Do(func() {
-		cs.resultCh <- AuthResult{Token: token, Error: err}
+		close(cs.stopCh)
+		cs.cancel()
+		cs.resultCh <- res
 	})
 }
 
-// Close apaga el servidor efímero.
 func (cs *CallbackServer) Close() {
+	cs.emitResult(AuthResult{Error: fmt.Errorf("cerrado")})
 	if cs.server != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
