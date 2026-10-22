@@ -4,6 +4,14 @@ import (
 	_ "embed"
 )
 
+// CloudflareGreenPNG contiene el icono con bolita verde (activo).
+//go:embed cloudflare_green.png
+var CloudflareGreenPNG []byte
+
+// CloudflareRedPNG contiene el icono con bolita roja (pausado).
+//go:embed cloudflare_red.png
+var CloudflareRedPNG []byte
+
 // CloudflareICO contiene el binario del icono ICO para Windows.
 //go:embed cloudflare.ico
 var CloudflareICO []byte

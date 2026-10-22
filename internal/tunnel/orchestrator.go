@@ -2,23 +2,19 @@ package tunnel
 
 import (
 	"context"
-	"fmt"
-	"io"
 	"log"
-	"net"
 	"sync"
-	"time"
 
 	"github.com/olrsoft/cloudflarenetconnect/internal/config"
 )
 
 // Orchestrator gestiona el ciclo de vida concurrente de las conexiones por cuenta.
 type Orchestrator struct {
-	mu       sync.RWMutex
-	cfg      *config.AppConfig
-	cancels  map[string]context.CancelFunc
-	active   bool
-	globalCtx context.Context
+	mu           sync.RWMutex
+	cfg          *config.AppConfig
+	cancels      map[string]context.CancelFunc
+	active       bool
+	globalCtx    context.Context
 	globalCancel context.CancelFunc
 }
 
@@ -102,6 +98,42 @@ func (o *Orchestrator) SetMasterToggle(enabled bool) {
 	}
 }
 
+// SetAccountEnabled activa o desactiva una cuenta individual.
+func (o *Orchestrator) SetAccountEnabled(accountID string, enabled bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if !enabled {
+		if cancel, exists := o.cancels[accountID]; exists {
+			log.Printf("[ORCHESTRATOR] Pausando cuenta: %s\n", accountID)
+			cancel()
+			delete(o.cancels, accountID)
+		}
+		return
+	}
+
+	if o.active && o.cfg.MasterToggle {
+		for _, acc := range o.cfg.Accounts {
+			if acc.ID == accountID || acc.AccountID == accountID {
+				o.startAccountLocked(acc)
+				break
+			}
+		}
+	}
+}
+
+// RemoveAccount detiene los túneles de una cuenta eliminada.
+func (o *Orchestrator) RemoveAccount(accountID string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if cancel, exists := o.cancels[accountID]; exists {
+		log.Printf("[ORCHESTRATOR] Desvinculando y cerrando cuenta: %s\n", accountID)
+		cancel()
+		delete(o.cancels, accountID)
+	}
+}
+
 func (o *Orchestrator) startAccountLocked(acc config.AccountConfig) {
 	if _, exists := o.cancels[acc.ID]; exists {
 		return
@@ -124,62 +156,4 @@ func (o *Orchestrator) runAccountWorker(ctx context.Context, acc config.AccountC
 
 	<-ctx.Done()
 	log.Printf("[WORKER:%s] Pool finalizado limpiamente.\n", acc.ID)
-}
-
-func (o *Orchestrator) listenTCPRoute(ctx context.Context, accountID string, route config.TunnelRoute) {
-	addr := fmt.Sprintf("127.0.0.1:%d", route.LocalPort)
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		log.Printf("[ROUTE-ERROR:%s] No se pudo escuchar en %s: %v\n", accountID, addr, err)
-		return
-	}
-	defer listener.Close()
-
-	log.Printf("[ROUTE-OK:%s] Enrutador local activo en %s -> %s\n", accountID, addr, route.Hostname)
-
-	go func() {
-		<-ctx.Done()
-		_ = listener.Close()
-	}()
-
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				time.Sleep(100 * time.Millisecond)
-				continue
-			}
-		}
-		go o.handleTCPConnection(ctx, conn, route.Hostname)
-	}
-}
-
-func (o *Orchestrator) handleTCPConnection(ctx context.Context, localConn net.Conn, targetHostname string) {
-	defer localConn.Close()
-
-	// Conexión puente hacia el host destino o cloudflared
-	remoteConn, err := net.DialTimeout("tcp", targetHostname+":443", 5*time.Second)
-	if err != nil {
-		log.Printf("[TCP-ERR] Fallo de conexión hacia %s: %v\n", targetHostname, err)
-		return
-	}
-	defer remoteConn.Close()
-
-	done := make(chan struct{}, 2)
-	go func() {
-		_, _ = io.Copy(remoteConn, localConn)
-		done <- struct{}{}
-	}()
-	go func() {
-		_, _ = io.Copy(localConn, remoteConn)
-		done <- struct{}{}
-	}()
-
-	select {
-	case <-ctx.Done():
-	case <-done:
-	}
 }
