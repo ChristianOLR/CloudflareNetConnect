@@ -45,11 +45,14 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 
 	masterLabel := "⚡ Activar Servicio de Túneles (Actualmente OFF)"
 	masterFlag := uintptr(0x0000)
+	masterDot := t.hDotRed
 	if t.cfg.MasterToggle {
 		masterLabel = "⚡ Servicio de Túneles Activo (Clic para Desactivar)"
 		masterFlag = 0x0008
+		masterDot = t.hDotGreen
 	}
 	appendStr(hPopup, masterFlag, idMaster, masterLabel)
+	pSetMenuItemBitmaps.Call(uintptr(hPopup), idMaster, 0, uintptr(masterDot), uintptr(masterDot))
 	appendStr(hPopup, 0x0800, 0, "")
 
 	t.mu.Lock()
@@ -87,8 +90,10 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 
 	if hasAccounts {
 		appendStr(hPopup, 0x0800, 0, "")
+		posIndex++
 	}
 	appendStr(hPopup, 0x0000, idAssociate, "➕ Asociar nueva cuenta...")
+	posIndex++
 
 	// Submenú Servicio del Sistema (Windows / Autoarranque Dinámico)
 	hSvc, _, _ := pCreatePopupMenu.Call()
@@ -96,35 +101,44 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 
 	// 1. Autoarranque en inicio de sesión (Bandeja)
 	autoFlag := uintptr(0x0000)
+	startupDot := t.hDotRed
 	if isStartupEnabled() {
 		autoFlag = 0x0008 // MF_CHECKED
+		startupDot = t.hDotGreen
 	}
 	appendStr(hSvcMenu, autoFlag, idStartupToggle, "Iniciar aplicación al encender el PC")
+	pSetMenuItemBitmaps.Call(uintptr(hSvcMenu), idStartupToggle, 0, uintptr(startupDot), uintptr(startupDot))
 	appendStr(hSvcMenu, 0x0800, 0, "") // Separador
 
 	// 2. Estado del Servicio de Windows (Segundo plano real / Daemon)
 	svcState := queryWindowsServiceStatus()
 	switch svcState {
 	case SvcRunning:
-		appendStr(hSvcMenu, 0x0003, idSvcStatusHeader, "Servicio Windows: Activo (2º Plano)")
+		appendStr(hSvcMenu, 0x0000, idSvcStatusHeader, "Servicio Windows: Activo (2º Plano)")
 		pSetMenuItemBitmaps.Call(uintptr(hSvcMenu), idSvcStatusHeader, 0, uintptr(t.hDotGreen), uintptr(t.hDotGreen))
 		appendStr(hSvcMenu, 0x0800, 0, "")
 		appendStr(hSvcMenu, 0x0000, idSvcStop, "⏹️ Detener Servicio Windows")
 		appendStr(hSvcMenu, 0x0000, idSvcUninstall, "🗑️ Desinstalar Servicio Windows")
 	case SvcStopped:
-		appendStr(hSvcMenu, 0x0003, idSvcStatusHeader, "Servicio Windows: Detenido (Instalado)")
+		appendStr(hSvcMenu, 0x0000, idSvcStatusHeader, "Servicio Windows: Detenido (Instalado)")
 		pSetMenuItemBitmaps.Call(uintptr(hSvcMenu), idSvcStatusHeader, 0, uintptr(t.hDotRed), uintptr(t.hDotRed))
 		appendStr(hSvcMenu, 0x0800, 0, "")
 		appendStr(hSvcMenu, 0x0000, idSvcStart, "▶️ Iniciar Servicio Windows")
 		appendStr(hSvcMenu, 0x0000, idSvcUninstall, "🗑️ Desinstalar Servicio Windows")
 	default: // SvcNotInstalled
-		appendStr(hSvcMenu, 0x0003, idSvcStatusHeader, "Servicio Windows: No Instalado")
+		appendStr(hSvcMenu, 0x0000, idSvcStatusHeader, "Servicio Windows: No Instalado")
 		pSetMenuItemBitmaps.Call(uintptr(hSvcMenu), idSvcStatusHeader, 0, uintptr(t.hDotRed), uintptr(t.hDotRed))
 		appendStr(hSvcMenu, 0x0800, 0, "")
 		appendStr(hSvcMenu, 0x0000, idSvcInstall, "➕ Instalar y Activar Servicio Windows (2º Plano)")
 	}
 
+	svcMenuDot := t.hDotRed
+	if svcState == SvcRunning || isStartupEnabled() {
+		svcMenuDot = t.hDotGreen
+	}
 	appendStr(hPopup, 0x0010, uintptr(hSvcMenu), "⚙️ Servicio del Sistema (Autoarranque)")
+	pSetMenuItemBitmaps.Call(uintptr(hPopup), posIndex, 0x0400, uintptr(svcMenuDot), uintptr(svcMenuDot))
+	posIndex++
 
 	appendStr(hPopup, 0x0800, 0, "")
 	appendStr(hPopup, 0x0000, idQuit, "❌ Salir")
