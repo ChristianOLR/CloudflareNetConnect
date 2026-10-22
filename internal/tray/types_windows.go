@@ -8,12 +8,10 @@ import (
 
 type NOTIFYICONDATAW struct {
 	CbSize           uint32
-	_                uint32
 	HWnd             windows.Handle
 	UID              uint32
 	UFlags           uint32
 	UCallbackMessage uint32
-	_                uint32
 	HIcon            windows.Handle
 	SzTip            [128]uint16
 	DwState          uint32
