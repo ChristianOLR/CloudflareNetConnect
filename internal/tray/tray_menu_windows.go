@@ -96,16 +96,22 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 	hSvc, _, _ := pCreatePopupMenu.Call()
 	hSvcMenu := windows.Handle(hSvc)
 
+	svcState := queryWindowsServiceStatus()
+	isSvcInstalled := svcState != SvcNotInstalled
+
 	// 1. Autoarranque en inicio de sesión (Bandeja con check nativo)
 	autoFlag := uintptr(0x0000)
-	if isStartupEnabled() {
+	autoText := "Iniciar aplicación al encender el PC"
+	if isSvcInstalled {
+		autoFlag = 0x0008 | 0x0001 | 0x0002 // MF_CHECKED | MF_GRAYED | MF_DISABLED
+		autoText = "Iniciar al encender el PC (Gestionado por Servicio)"
+	} else if isStartupEnabled() {
 		autoFlag = 0x0008 // MF_CHECKED
 	}
-	appendStr(hSvcMenu, autoFlag, idStartupToggle, "Iniciar aplicación al encender el PC")
+	appendStr(hSvcMenu, autoFlag, idStartupToggle, autoText)
 	appendStr(hSvcMenu, 0x0800, 0, "") // Separador
 
 	// 2. Estado del Servicio de Windows (Segundo plano real / Daemon)
-	svcState := queryWindowsServiceStatus()
 	switch svcState {
 	case SvcRunning:
 		appendStr(hSvcMenu, 0x0000, idSvcStatusHeader, "Servicio Windows: Activo (2º Plano)")
@@ -177,7 +183,9 @@ func (t *TrayApp) handleMenuCommand(cmd uintptr, toggleMap, removeMap map[uintpt
 	case idAssociate:
 		t.StartAssociateFlow()
 	case idStartupToggle:
-		setStartupEnabled(!isStartupEnabled(), exePath)
+		if queryWindowsServiceStatus() == SvcNotInstalled {
+			setStartupEnabled(!isStartupEnabled(), exePath)
+		}
 	case idSvcInstall:
 		runElevatedServiceCmd(exePath, "install")
 		runElevatedServiceCmd(exePath, "start")
