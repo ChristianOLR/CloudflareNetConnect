@@ -28,10 +28,12 @@ func (s *SplashWindow) Show() {
 	log.Printf("[SPLASH] Enlace de identificación copiado al portapapeles: %s\n", s.authURL)
 	go func() {
 		if runtime.GOOS == "darwin" {
-			script := `display dialog "Esperando identificación en Cloudflare...\n\nEl enlace de identificación ya se ha copiado a tu portapapeles. Pégalo en tu navegador para vincular la cuenta." with title "CloudflareNetConnect" buttons {"Copiar Enlace", "Cancelar"} default button "Copiar Enlace"`
+			script := `display dialog "Esperando identificación en Cloudflare...\n\nSelecciona el dominio en el navegador y pulsa 'Autorizar'." with title "CloudflareNetConnect" buttons {"Copiar Enlace", "Abrir Navegador", "Cancelar"} default button "Abrir Navegador"`
 			out, _ := exec.Command("osascript", "-e", script).CombinedOutput()
 			if strings.Contains(string(out), "Copiar Enlace") {
 				CopyToClipboard(s.authURL)
+			} else if strings.Contains(string(out), "Abrir Navegador") {
+				_ = exec.Command("open", s.authURL).Start()
 			}
 		} else {
 			_ = exec.Command("zenity", "--info", "--title=CloudflareNetConnect", "--width=360", "--text=Esperando identificación en Cloudflare...\n\nEl enlace ya está copiado en tu portapapeles. Pégalo en tu navegador.").Run()
