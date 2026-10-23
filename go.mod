@@ -1,4 +1,4 @@
-module github.com/olrsoft/cloudflarenetconnect
+module github.com/chgarcia79/cloudflarenetconnect
 
 go 1.26.0
 

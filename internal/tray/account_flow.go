@@ -4,10 +4,10 @@ import (
 	"log"
 	"time"
 
-	"github.com/olrsoft/cloudflarenetconnect/internal/auth"
-	"github.com/olrsoft/cloudflarenetconnect/internal/cloudflare"
-	"github.com/olrsoft/cloudflarenetconnect/internal/config"
-	"github.com/olrsoft/cloudflarenetconnect/internal/ui"
+	"github.com/chgarcia79/cloudflarenetconnect/internal/auth"
+	"github.com/chgarcia79/cloudflarenetconnect/internal/cloudflare"
+	"github.com/chgarcia79/cloudflarenetconnect/internal/config"
+	"github.com/chgarcia79/cloudflarenetconnect/internal/ui"
 )
 
 func (t *TrayApp) StartAssociateFlow() {

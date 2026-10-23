@@ -5,7 +5,7 @@ package ui
 import (
 	"unsafe"
 
-	"github.com/olrsoft/cloudflarenetconnect/assets"
+	"github.com/chgarcia79/cloudflarenetconnect/assets"
 	"golang.org/x/sys/windows"
 )
 

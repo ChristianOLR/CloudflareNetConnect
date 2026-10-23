@@ -9,9 +9,9 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/olrsoft/cloudflarenetconnect/assets"
-	"github.com/olrsoft/cloudflarenetconnect/internal/config"
-	"github.com/olrsoft/cloudflarenetconnect/internal/tunnel"
+	"github.com/chgarcia79/cloudflarenetconnect/assets"
+	"github.com/chgarcia79/cloudflarenetconnect/internal/config"
+	"github.com/chgarcia79/cloudflarenetconnect/internal/tunnel"
 	"golang.org/x/sys/windows"
 )
 

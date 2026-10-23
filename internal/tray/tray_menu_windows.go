@@ -6,7 +6,7 @@ import (
 	"os"
 	"unsafe"
 
-	"github.com/olrsoft/cloudflarenetconnect/internal/config"
+	"github.com/chgarcia79/cloudflarenetconnect/internal/config"
 	"golang.org/x/sys/windows"
 )
 

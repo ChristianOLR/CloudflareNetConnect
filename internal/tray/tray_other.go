@@ -14,8 +14,8 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/olrsoft/cloudflarenetconnect/internal/config"
-	"github.com/olrsoft/cloudflarenetconnect/internal/tunnel"
+	"github.com/chgarcia79/cloudflarenetconnect/internal/config"
+	"github.com/chgarcia79/cloudflarenetconnect/internal/tunnel"
 )
 
 type TrayApp struct {

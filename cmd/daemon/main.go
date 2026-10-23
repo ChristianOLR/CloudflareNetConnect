@@ -6,10 +6,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/olrsoft/cloudflarenetconnect/internal/config"
-	"github.com/olrsoft/cloudflarenetconnect/internal/service"
-	"github.com/olrsoft/cloudflarenetconnect/internal/tray"
-	"github.com/olrsoft/cloudflarenetconnect/internal/tunnel"
+	"github.com/chgarcia79/cloudflarenetconnect/internal/config"
+	"github.com/chgarcia79/cloudflarenetconnect/internal/service"
+	"github.com/chgarcia79/cloudflarenetconnect/internal/tray"
+	"github.com/chgarcia79/cloudflarenetconnect/internal/tunnel"
 )
 
 func main() {

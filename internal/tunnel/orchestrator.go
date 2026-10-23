@@ -5,7 +5,7 @@ import (
 	"log"
 	"sync"
 
-	"github.com/olrsoft/cloudflarenetconnect/internal/config"
+	"github.com/chgarcia79/cloudflarenetconnect/internal/config"
 )
 
 // Orchestrator gestiona el ciclo de vida concurrente de las conexiones por cuenta.
