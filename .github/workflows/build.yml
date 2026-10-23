@@ -207,7 +207,3 @@ jobs:
             artifacts/CloudflareNetConnect-linux/CloudflareNetConnect-linux \
             artifacts/CloudflareNetConnect.dmg/CloudflareNetConnect.dmg \
             artifacts/CloudflareNetConnect-mac-universal/CloudflareNetConnect-mac-universal --clobber
-            artifacts/CloudflareNetConnect.exe/CloudflareNetConnect.exe \
-            artifacts/CloudflareNetConnect-linux/CloudflareNetConnect-linux \
-            artifacts/CloudflareNetConnect.dmg/CloudflareNetConnect.dmg \
-            artifacts/CloudflareNetConnect-mac-universal/CloudflareNetConnect-mac-universal --clobber
