@@ -55,7 +55,9 @@ static MacTrayHandler *g_trayHandler = nil;
     if (effectivelyActive) {
         headerTitle = @"🟢 CloudflareNetConnect (Servicio Activo)";
     } else if (masterActive && accounts.count == 0) {
-        headerTitle = @"🟡 CloudflareNetConnect (Sin dominios vinculados)";
+        headerTitle = @"🔴 CloudflareNetConnect (Sin dominios vinculados)";
+    } else if (masterActive) {
+        headerTitle = @"🔴 CloudflareNetConnect (Sin dominios activos)";
     }
     NSMenuItem *header = [[NSMenuItem alloc] initWithTitle:headerTitle action:nil keyEquivalent:@""];
     [header setEnabled:NO];
@@ -72,7 +74,7 @@ static MacTrayHandler *g_trayHandler = nil;
 
     // 3. Sección de Cuentas con bolitas semáforo verde y roja
     if (accounts.count == 0) {
-        NSMenuItem *noAcc = [[NSMenuItem alloc] initWithTitle:@"⚠️ (Sin cuentas vinculadas)" action:nil keyEquivalent:@""];
+        NSMenuItem *noAcc = [[NSMenuItem alloc] initWithTitle:@"(Sin cuentas vinculadas)" action:nil keyEquivalent:@""];
         [noAcc setEnabled:NO];
         [menu addItem:noAcc];
     } else {
