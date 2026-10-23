@@ -10,7 +10,6 @@ extern void goOnQuit(void);
 
 @interface MacTrayHandler : NSObject
 @property (strong, nonatomic) NSStatusItem *statusItem;
-@property (copy, nonatomic) NSString *iconPath;
 @end
 
 static MacTrayHandler *g_trayHandler = nil;
@@ -41,23 +40,39 @@ static MacTrayHandler *g_trayHandler = nil;
 - (void)setupMenuWithMaster:(BOOL)masterActive accounts:(NSArray *)accounts {
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"CloudflareNetConnect"];
 
-    // 1. Cabecera informativa
-    NSMenuItem *header = [[NSMenuItem alloc] initWithTitle:@"CloudflareNetConnect v1.0.0" action:nil keyEquivalent:@""];
+    // 1. Cabecera informativa con semáforo
+    BOOL effectivelyActive = NO;
+    if (masterActive) {
+        for (NSDictionary *acc in accounts) {
+            if ([acc[@"enabled"] boolValue]) {
+                effectivelyActive = YES;
+                break;
+            }
+        }
+    }
+
+    NSString *headerTitle = @"🔴 CloudflareNetConnect (Servicio Pausado)";
+    if (effectivelyActive) {
+        headerTitle = @"🟢 CloudflareNetConnect (Servicio Activo)";
+    } else if (masterActive && accounts.count == 0) {
+        headerTitle = @"🟡 CloudflareNetConnect (Sin dominios vinculados)";
+    }
+    NSMenuItem *header = [[NSMenuItem alloc] initWithTitle:headerTitle action:nil keyEquivalent:@""];
     [header setEnabled:NO];
     [menu addItem:header];
     [menu addItem:[NSMenuItem separatorItem]];
 
     // 2. Interruptor Maestro
-    NSString *masterTitle = masterActive ? @"⚡ Servicio de Túneles (Activo)" : @"⏸ Servicio de Túneles (Pausado)";
+    NSString *masterTitle = masterActive ? @"⚡ Servicio de Túneles Activo (Clic para pausar)" : @"⏸ Servicio de Túneles Pausado (Clic para activar)";
     NSMenuItem *masterItem = [[NSMenuItem alloc] initWithTitle:masterTitle action:@selector(actionToggleMaster:) keyEquivalent:@""];
     [masterItem setTarget:self];
     [masterItem setState:masterActive ? NSControlStateValueOn : NSControlStateValueOff];
     [menu addItem:masterItem];
     [menu addItem:[NSMenuItem separatorItem]];
 
-    // 3. Sección de Cuentas
+    // 3. Sección de Cuentas con bolitas semáforo verde y roja
     if (accounts.count == 0) {
-        NSMenuItem *noAcc = [[NSMenuItem alloc] initWithTitle:@"(Sin cuentas vinculadas)" action:nil keyEquivalent:@""];
+        NSMenuItem *noAcc = [[NSMenuItem alloc] initWithTitle:@"⚠️ (Sin cuentas vinculadas)" action:nil keyEquivalent:@""];
         [noAcc setEnabled:NO];
         [menu addItem:noAcc];
     } else {
@@ -65,7 +80,9 @@ static MacTrayHandler *g_trayHandler = nil;
             NSDictionary *acc = accounts[i];
             NSString *name = acc[@"name"];
             BOOL enabled = [acc[@"enabled"] boolValue];
-            NSString *title = [NSString stringWithFormat:@"%@ %@", enabled ? @"●" : @"○", name];
+            BOOL isOnline = enabled && masterActive;
+            NSString *dot = isOnline ? @"🟢" : @"🔴";
+            NSString *title = [NSString stringWithFormat:@"%@ %@", dot, name];
             NSMenuItem *accItem = [[NSMenuItem alloc] initWithTitle:title action:@selector(actionToggleAccount:) keyEquivalent:@""];
             [accItem setTarget:self];
             [accItem setTag:i];
@@ -95,37 +112,52 @@ static MacTrayHandler *g_trayHandler = nil;
 
 @end
 
-void initMacTray(const char* iconPath) {
+void initMacTray(const void* iconBytes, int iconLen) {
     @autoreleasepool {
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
 
         g_trayHandler = [[MacTrayHandler alloc] init];
-        g_trayHandler.iconPath = [NSString stringWithUTF8String:iconPath];
 
         NSStatusBar *statusBar = [NSStatusBar systemStatusBar];
         g_trayHandler.statusItem = [statusBar statusItemWithLength:NSSquareStatusItemLength];
 
-        NSImage *img = [[NSImage alloc] initWithContentsOfFile:g_trayHandler.iconPath];
-        if (img) {
-            [img setSize:NSMakeSize(18, 18)];
-            g_trayHandler.statusItem.button.image = img;
-        } else {
-            g_trayHandler.statusItem.button.title = @"CF";
+        if (iconBytes != NULL && iconLen > 0) {
+            NSData *data = [NSData dataWithBytes:iconBytes length:iconLen];
+            NSImage *img = [[NSImage alloc] initWithData:data];
+            if (img) {
+                [img setSize:NSMakeSize(18, 18)];
+                [img setTemplate:NO];
+                g_trayHandler.statusItem.button.image = img;
+            }
         }
     }
 }
 
-void setMacMenu(int masterActive, const char* accountsJson) {
+void setMacMenu(int masterActive, const char* accountsJson, const void* iconBytes, int iconLen) {
     @autoreleasepool {
         NSString *jsonStr = [NSString stringWithUTF8String:accountsJson];
-        NSData *data = [jsonStr dataUsingEncoding:NSUTF8StringEncoding];
+        NSData *jsonData = [jsonStr dataUsingEncoding:NSUTF8StringEncoding];
         NSArray *accs = @[];
-        if (data) {
-            accs = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] ?: @[];
+        if (jsonData) {
+            accs = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:nil] ?: @[];
+        }
+
+        NSData *iconData = nil;
+        if (iconBytes != NULL && iconLen > 0) {
+            iconData = [NSData dataWithBytes:iconBytes length:iconLen];
         }
 
         dispatch_async(dispatch_get_main_queue(), ^{
+            if (iconData) {
+                NSImage *img = [[NSImage alloc] initWithData:iconData];
+                if (img) {
+                    [img setSize:NSMakeSize(18, 18)];
+                    [img setTemplate:NO];
+                    g_trayHandler.statusItem.button.image = img;
+                    g_trayHandler.statusItem.button.title = @"";
+                }
+            }
             [g_trayHandler setupMenuWithMaster:(masterActive != 0) accounts:accs];
         });
     }
