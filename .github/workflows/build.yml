@@ -178,6 +178,9 @@ jobs:
     needs: [build-binaries, build-macos]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
@@ -192,12 +195,18 @@ jobs:
             TAG_NAME="v1.0.0"
           fi
           gh release create "$TAG_NAME" \
+            --repo "${{ github.repository }}" \
             artifacts/CloudflareNetConnect.exe/CloudflareNetConnect.exe \
             artifacts/CloudflareNetConnect-linux/CloudflareNetConnect-linux \
             artifacts/CloudflareNetConnect.dmg/CloudflareNetConnect.dmg \
             artifacts/CloudflareNetConnect-mac-universal/CloudflareNetConnect-mac-universal \
             --title "CloudflareNetConnect $TAG_NAME" \
             --generate-notes || gh release upload "$TAG_NAME" \
+            --repo "${{ github.repository }}" \
+            artifacts/CloudflareNetConnect.exe/CloudflareNetConnect.exe \
+            artifacts/CloudflareNetConnect-linux/CloudflareNetConnect-linux \
+            artifacts/CloudflareNetConnect.dmg/CloudflareNetConnect.dmg \
+            artifacts/CloudflareNetConnect-mac-universal/CloudflareNetConnect-mac-universal --clobber
             artifacts/CloudflareNetConnect.exe/CloudflareNetConnect.exe \
             artifacts/CloudflareNetConnect-linux/CloudflareNetConnect-linux \
             artifacts/CloudflareNetConnect.dmg/CloudflareNetConnect.dmg \
