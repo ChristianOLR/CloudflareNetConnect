@@ -1,11 +1,15 @@
-name: Build Cross-Platform
+name: Build & Release Cross-Platform
 
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build-binaries:
@@ -52,7 +56,7 @@ jobs:
           path: bin/${{ matrix.output }}
 
   build-macos:
-    name: Build macOS Universal (Intel + Apple Silicon)
+    name: Build macOS DMG & Universal Mach-O
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -64,6 +68,21 @@ jobs:
           go-version: '1.24'
           cache: true
 
+      - name: Import Apple Developer Certificate
+        if: env.CERT_BASE64 != ''
+        env:
+          CERT_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          CERT_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
+          echo -n "$CERT_BASE64" | base64 --decode -o $RUNNER_TEMP/cert.p12
+          security create-keychain -p "gh-actions" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "gh-actions" $KEYCHAIN_PATH
+          security import $RUNNER_TEMP/cert.p12 -P "$CERT_PWD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -s -k "gh-actions" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH $(security list-keychains -d user | tr -d '"')
+
       - name: Compile Universal Mach-O Binary
         run: |
           mkdir -p bin
@@ -72,8 +91,114 @@ jobs:
           lipo -create -output bin/CloudflareNetConnect-mac-universal bin/mac-arm64 bin/mac-intel
           chmod +x bin/CloudflareNetConnect-mac-universal
 
-      - name: Upload macOS Universal
+      - name: Package & Sign macOS App Bundle and DMG
+        env:
+          CERT_NAME: ${{ secrets.MACOS_CERT_NAME }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_PWD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          APP="bin/CloudflareNetConnect.app"
+          mkdir -p "$APP/Contents/MacOS"
+          mkdir -p "$APP/Contents/Resources"
+          cp bin/CloudflareNetConnect-mac-universal "$APP/Contents/MacOS/CloudflareNetConnect"
+          chmod +x "$APP/Contents/MacOS/CloudflareNetConnect"
+
+          cat <<EOF > "$APP/Contents/Info.plist"
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>CloudflareNetConnect</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.olrsoft.cloudflarenetconnect</string>
+              <key>CFBundleName</key>
+              <string>CloudflareNetConnect</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0.0</string>
+              <key>CFBundleVersion</key>
+              <string>1</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>11.0</string>
+              <key>LSUIElement</key>
+              <true/>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+
+          if [ -n "$CERT_NAME" ]; then
+            echo "==> Firmando binario y .app..."
+            codesign --force --options runtime --deep --sign "$CERT_NAME" --timestamp "$APP"
+            codesign --verify --verbose --strict "$APP"
+          fi
+
+          echo "==> Generando instalador DMG..."
+          DMG_STAGING="bin/dmg_staging"
+          mkdir -p "$DMG_STAGING"
+          cp -R "$APP" "$DMG_STAGING/"
+          ln -s /Applications "$DMG_STAGING/Applications"
+          hdiutil create -volname "CloudflareNetConnect" -srcfolder "$DMG_STAGING" -ov -format UDZO "bin/CloudflareNetConnect.dmg"
+
+          if [ -n "$CERT_NAME" ]; then
+            echo "==> Firmando DMG..."
+            codesign --force --sign "$CERT_NAME" --timestamp "bin/CloudflareNetConnect.dmg"
+          fi
+
+          if [ -n "$APPLE_PWD" ] && [ -n "$APPLE_ID" ]; then
+            echo "==> Enviando a Apple Notarization Service..."
+            xcrun notarytool submit "bin/CloudflareNetConnect.dmg" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_PWD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait
+            echo "==> Estampando ticket de notarizacion (stapler)..."
+            xcrun stapler staple "bin/CloudflareNetConnect.dmg"
+          fi
+
+      - name: Upload DMG Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CloudflareNetConnect.dmg
+          path: bin/CloudflareNetConnect.dmg
+
+      - name: Upload Universal Binary Artifact
         uses: actions/upload-artifact@v4
         with:
           name: CloudflareNetConnect-mac-universal
           path: bin/CloudflareNetConnect-mac-universal
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    needs: [build-binaries, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release on GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="${{ github.ref_name }}"
+          if [ "$TAG_NAME" = "main" ]; then
+            TAG_NAME="v1.0.0"
+          fi
+          gh release create "$TAG_NAME" \
+            artifacts/CloudflareNetConnect.exe/CloudflareNetConnect.exe \
+            artifacts/CloudflareNetConnect-linux/CloudflareNetConnect-linux \
+            artifacts/CloudflareNetConnect.dmg/CloudflareNetConnect.dmg \
+            artifacts/CloudflareNetConnect-mac-universal/CloudflareNetConnect-mac-universal \
+            --title "CloudflareNetConnect $TAG_NAME" \
+            --generate-notes || gh release upload "$TAG_NAME" \
+            artifacts/CloudflareNetConnect.exe/CloudflareNetConnect.exe \
+            artifacts/CloudflareNetConnect-linux/CloudflareNetConnect-linux \
+            artifacts/CloudflareNetConnect.dmg/CloudflareNetConnect.dmg \
+            artifacts/CloudflareNetConnect-mac-universal/CloudflareNetConnect-mac-universal --clobber
