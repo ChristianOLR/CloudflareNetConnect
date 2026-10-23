@@ -1,4 +1,4 @@
-# CloudflareNetConnect (SERV_CloudflareNetConnect)
+# CloudflareNetConnect
 
 Servicio desacoplado y demonio en Go para conectividad multi-cuenta simultánea a Cloudflare con soporte multiplataforma (*Windows, macOS, Linux*), privacidad absoluta (*Zero-Device Enrollment*) y bypass de limitaciones de WARP.
 
