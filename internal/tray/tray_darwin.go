@@ -56,10 +56,6 @@ func (t *TrayApp) Run() {
 
 	t.refreshTrayState()
 
-	if len(t.cfg.Accounts) == 0 {
-		go t.StartAssociateFlow()
-	}
-
 	C.runMacLoop()
 	log.Println("[TRAY] Bucle de eventos finalizado.")
 }
