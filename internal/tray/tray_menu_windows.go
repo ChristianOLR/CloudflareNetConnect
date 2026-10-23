@@ -3,6 +3,7 @@
 package tray
 
 import (
+	"fmt"
 	"os"
 	"unsafe"
 
@@ -55,6 +56,7 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 	t.mu.Lock()
 	toggleMap := make(map[uintptr]int)
 	removeMap := make(map[uintptr]int)
+	refreshMap := make(map[uintptr]int)
 	posIndex := uintptr(4)
 	for i, acc := range t.cfg.Accounts {
 		hSub, _, _ := pCreatePopupMenu.Call()
@@ -62,8 +64,10 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 
 		accToggleID := uintptr(idAccToggleBase + i)
 		accRemoveID := uintptr(idAccRemoveBase + i)
+		accRefreshID := uintptr(idAccRefreshBase + i)
 		toggleMap[accToggleID] = i
 		removeMap[accRemoveID] = i
+		refreshMap[accRefreshID] = i
 
 		flag := uintptr(0x0000)
 		stateLabel := "Activar conexión de este dominio"
@@ -72,6 +76,13 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 			stateLabel = "Dominio Activo (Clic para Desactivar)"
 		}
 		appendStr(hSubMenu, flag, accToggleID, stateLabel)
+		appendStr(hSubMenu, 0x0000, accRefreshID, "🔄 Actualizar túneles")
+		if len(acc.Routes) > 0 {
+			appendStr(hSubMenu, 0x0800, 0, "")
+			for _, r := range acc.Routes {
+				appendStr(hSubMenu, 0x0001|0x0002, 0, fmt.Sprintf("🔌 %s → 127.0.0.1:%d", r.Hostname, r.LocalPort))
+			}
+		}
 		appendStr(hSubMenu, 0x0800, 0, "")
 		appendStr(hSubMenu, 0x0000, accRemoveID, "🗑️ Desvincular cuenta")
 
@@ -148,10 +159,14 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 	u32.NewProc("SetForegroundWindow").Call(uintptr(hWnd))
 
 	cmd, _, _ := u32.NewProc("TrackPopupMenu").Call(uintptr(hPopup), 0x0100|0x0002, uintptr(pt.X), uintptr(pt.Y), 0, uintptr(hWnd), 0)
-	t.handleMenuCommand(cmd, toggleMap, removeMap)
+	t.handleMenuCommand(cmd, toggleMap, removeMap, refreshMap)
 }
 
-func (t *TrayApp) handleMenuCommand(cmd uintptr, toggleMap, removeMap map[uintptr]int) {
+func (t *TrayApp) handleMenuCommand(cmd uintptr, toggleMap, removeMap, refreshMap map[uintptr]int) {
+	if idx, ok := refreshMap[cmd]; ok {
+		go t.RefreshAccountTunnels(idx)
+		return
+	}
 	if idx, ok := toggleMap[cmd]; ok {
 		t.mu.Lock()
 		t.cfg.Accounts[idx].Enabled = !t.cfg.Accounts[idx].Enabled
