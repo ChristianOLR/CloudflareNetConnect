@@ -86,8 +86,8 @@ jobs:
       - name: Compile Universal Mach-O Binary
         run: |
           mkdir -p bin
-          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/mac-arm64 ./cmd/daemon
-          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/mac-intel ./cmd/daemon
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -ldflags "-s -w" -o bin/mac-arm64 ./cmd/daemon
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 CC="clang -target x86_64-apple-macos11" CXX="clang++ -target x86_64-apple-macos11" go build -ldflags "-s -w" -o bin/mac-intel ./cmd/daemon
           lipo -create -output bin/CloudflareNetConnect-mac-universal bin/mac-arm64 bin/mac-intel
           chmod +x bin/CloudflareNetConnect-mac-universal
 
@@ -143,7 +143,7 @@ jobs:
               <key>LSMinimumSystemVersion</key>
               <string>11.0</string>
               <key>LSUIElement</key>
-              <false/>
+              <true/>
               <key>NSHighResolutionCapable</key>
               <true/>
           </dict>
