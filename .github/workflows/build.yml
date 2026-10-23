@@ -143,7 +143,7 @@ jobs:
               <key>LSMinimumSystemVersion</key>
               <string>11.0</string>
               <key>LSUIElement</key>
-              <true/>
+              <false/>
               <key>NSHighResolutionCapable</key>
               <true/>
           </dict>

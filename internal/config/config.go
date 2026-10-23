@@ -38,6 +38,30 @@ func DefaultConfig() *AppConfig {
 	}
 }
 
+// DefaultConfigPath devuelve la ruta adecuada según la plataforma y permisos.
+func DefaultConfigPath(baseDir string) string {
+	if os.Getenv("GOOS") == "windows" || filepath.Separator == '\\' {
+		return filepath.Join(baseDir, "config", "netconnect.json")
+	}
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		home, _ := os.UserHomeDir()
+		configDir = filepath.Join(home, ".config")
+	}
+	return filepath.Join(configDir, "cloudflarenetconnect", "netconnect.json")
+}
+
+// DefaultLogPath devuelve la ruta adecuada de logs con permisos de usuario.
+func DefaultLogPath(baseDir string) string {
+	if os.Getenv("GOOS") == "windows" || filepath.Separator == '\\' {
+		return filepath.Join(baseDir, "netconnect.log")
+	}
+	home, _ := os.UserHomeDir()
+	logDir := filepath.Join(home, "Library", "Logs", "CloudflareNetConnect")
+	_ = os.MkdirAll(logDir, 0755)
+	return filepath.Join(logDir, "netconnect.log")
+}
+
 // LoadConfig carga el archivo JSON desde la ruta dada o crea el default.
 func LoadConfig(path string) (*AppConfig, error) {
 	data, err := os.ReadFile(path)

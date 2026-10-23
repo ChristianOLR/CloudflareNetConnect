@@ -19,13 +19,14 @@ func main() {
 		baseDir = filepath.Dir(exePath)
 	}
 
-	logFile, err := os.OpenFile(filepath.Join(baseDir, "netconnect.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	logPath := config.DefaultLogPath(baseDir)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err == nil {
 		log.SetOutput(logFile)
 		defer logFile.Close()
 	}
 
-	defaultConfig := filepath.Join(baseDir, "config", "netconnect.json")
+	defaultConfig := config.DefaultConfigPath(baseDir)
 	configPath := flag.String("config", defaultConfig, "Ruta al config")
 	serviceAction := flag.String("service", "", "Acción: install, uninstall, start, stop, restart, status")
 	flag.Parse()
