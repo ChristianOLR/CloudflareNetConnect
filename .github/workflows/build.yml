@@ -112,7 +112,7 @@ jobs:
               <key>CFBundleExecutable</key>
               <string>CloudflareNetConnect</string>
               <key>CFBundleIdentifier</key>
-              <string>com.olrsoft.cloudflarenetconnect</string>
+              <string>com.github.cloudflarenetconnect</string>
               <key>CFBundleName</key>
               <string>CloudflareNetConnect</string>
               <key>CFBundlePackageType</key>

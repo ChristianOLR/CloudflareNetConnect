@@ -6,7 +6,7 @@ Servicio desacoplado y demonio en Go para conectividad multi-cuenta simultánea 
 
 ## Características Principales
 
-- **Multi-Cuenta Concurrente:** Conexión en paralelo a organizaciones independientes (ej. Personal `HispaServer` y Corporativa `OLRSoft / olrcloud.com`).
+- **Multi-Cuenta Concurrente:** Conexión en paralelo a organizaciones independientes en simultáneo.
 - **Control del Servicio del Sistema:** Gestión nativa del ciclo de vida (`install`, `uninstall`, `start`, `stop`, `restart`, `status`) compatible con Windows SCM (`services.msc`), macOS `launchd` y Linux `systemd`.
 - **System Tray e Identidad Visual:** Icono de Cloudflare incrustado (`assets/cloudflare.svg`), Master Toggle (ON/OFF) con reposo a 0% CPU.
 - **Compilación Estática:** Binario único autosuficiente sin dependencias externas (`CGO_ENABLED=0`).
