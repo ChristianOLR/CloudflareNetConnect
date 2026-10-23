@@ -7,8 +7,8 @@ package tray
 #cgo LDFLAGS: -framework Cocoa
 #include <stdlib.h>
 
-void initMacTray(const char* iconPath);
-void setMacMenu(int masterActive, const char* accountsJson);
+void initMacTray(const void* iconBytes, int iconLen);
+void setMacMenu(int masterActive, const char* accountsJson, const void* iconBytes, int iconLen);
 void runMacLoop(void);
 void stopMacLoop(void);
 */
@@ -17,12 +17,12 @@ import "C"
 import (
 	"encoding/json"
 	"log"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
 	"unsafe"
 
+	"github.com/chgarcia79/cloudflarenetconnect/assets"
 	"github.com/chgarcia79/cloudflarenetconnect/internal/config"
 	"github.com/chgarcia79/cloudflarenetconnect/internal/tunnel"
 )
@@ -42,17 +42,29 @@ func NewTrayApp(orch *tunnel.Orchestrator, cfg *config.AppConfig, configPath str
 	return app
 }
 
+func (t *TrayApp) isEffectivelyActive() bool {
+	if !t.cfg.MasterToggle {
+		return false
+	}
+	for _, acc := range t.cfg.Accounts {
+		if acc.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
+func (t *TrayApp) currentIconBytes() []byte {
+	if t.isEffectivelyActive() {
+		return assets.CloudflareGreenPNG
+	}
+	return assets.CloudflareRedPNG
+}
+
 func (t *TrayApp) Run() {
 	log.Println("[TRAY] Iniciando System Tray nativo de macOS (NSStatusItem)...")
-	iconPath := "/Applications/CloudflareNetConnect.app/Contents/Resources/AppIcon.icns"
-	if _, err := os.Stat(iconPath); os.IsNotExist(err) {
-		exePath, _ := os.Executable()
-		iconPath = filepath.Join(filepath.Dir(exePath), "..", "Resources", "AppIcon.icns")
-	}
-
-	cIcon := C.CString(iconPath)
-	defer C.free(unsafe.Pointer(cIcon))
-	C.initMacTray(cIcon)
+	png := t.currentIconBytes()
+	C.initMacTray(unsafe.Pointer(&png[0]), C.int(len(png)))
 
 	t.refreshTrayState()
 
@@ -79,9 +91,10 @@ func (t *TrayApp) refreshTrayState() {
 		master = 1
 	}
 
+	png := t.currentIconBytes()
 	cJson := C.CString(string(bytes))
 	defer C.free(unsafe.Pointer(cJson))
-	C.setMacMenu(C.int(master), cJson)
+	C.setMacMenu(C.int(master), cJson, unsafe.Pointer(&png[0]), C.int(len(png)))
 }
 
 //export goOnToggleMaster
