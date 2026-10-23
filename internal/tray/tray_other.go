@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/olrsoft/cloudflarenetconnect/internal/config"
@@ -18,9 +19,14 @@ import (
 )
 
 type TrayApp struct {
+	mu         sync.Mutex
 	orch       *tunnel.Orchestrator
 	cfg        *config.AppConfig
 	configPath string
+}
+
+func (t *TrayApp) refreshTrayState() {
+	// No-op en entornos sin bandeja de sistema nativa Win32
 }
 
 func NewTrayApp(orch *tunnel.Orchestrator, cfg *config.AppConfig, configPath string) *TrayApp {
