@@ -8,7 +8,7 @@ package tray
 #include <stdlib.h>
 
 void initMacTray(const void* iconBytes, int iconLen);
-void setMacMenu(int masterActive, const char* accountsJson, const void* iconBytes, int iconLen);
+void setMacMenu(const char* stateJson, const void* iconBytes, int iconLen);
 void runMacLoop(void);
 void stopMacLoop(void);
 */
@@ -16,6 +16,7 @@ import "C"
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"os/exec"
 	"path/filepath"
@@ -67,6 +68,7 @@ func (t *TrayApp) Run() {
 	C.initMacTray(unsafe.Pointer(&png[0]), C.int(len(png)))
 
 	t.refreshTrayState()
+	go t.AutoSyncMissingRoutes()
 
 	C.runMacLoop()
 	log.Println("[TRAY] Bucle de eventos finalizado.")
@@ -74,27 +76,39 @@ func (t *TrayApp) Run() {
 
 func (t *TrayApp) refreshTrayState() {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	type accSummary struct {
-		Name    string `json:"name"`
-		Enabled bool   `json:"enabled"`
+		Name    string   `json:"name"`
+		Enabled bool     `json:"enabled"`
+		Routes  []string `json:"routes"`
 	}
+	type menuStatePayload struct {
+		MasterActive   bool         `json:"master_active"`
+		StartupEnabled bool         `json:"startup_enabled"`
+		SvcState       int          `json:"svc_state"`
+		Accounts       []accSummary `json:"accounts"`
+	}
+
 	summaries := make([]accSummary, len(t.cfg.Accounts))
 	for i, a := range t.cfg.Accounts {
-		summaries[i] = accSummary{Name: a.Name, Enabled: a.Enabled}
+		rLabels := make([]string, 0, len(a.Routes))
+		for _, r := range a.Routes {
+			rLabels = append(rLabels, fmt.Sprintf("🔌 %s → 127.0.0.1:%d", r.Hostname, r.LocalPort))
+		}
+		summaries[i] = accSummary{Name: a.Name, Enabled: a.Enabled, Routes: rLabels}
 	}
-	bytes, _ := json.Marshal(summaries)
-
-	master := 0
-	if t.cfg.MasterToggle {
-		master = 1
+	payload := menuStatePayload{
+		MasterActive:   t.cfg.MasterToggle,
+		StartupEnabled: isMacStartupEnabled(),
+		SvcState:       queryMacServiceStatus(),
+		Accounts:       summaries,
 	}
-
 	png := t.currentIconBytes()
+	t.mu.Unlock()
+
+	bytes, _ := json.Marshal(payload)
 	cJson := C.CString(string(bytes))
 	defer C.free(unsafe.Pointer(cJson))
-	C.setMacMenu(C.int(master), cJson, unsafe.Pointer(&png[0]), C.int(len(png)))
+	C.setMacMenu(cJson, unsafe.Pointer(&png[0]), C.int(len(png)))
 }
 
 //export goOnToggleMaster
@@ -105,15 +119,11 @@ func goOnToggleMaster() {
 	g_darwinTray.mu.Lock()
 	g_darwinTray.cfg.MasterToggle = !g_darwinTray.cfg.MasterToggle
 	newState := g_darwinTray.cfg.MasterToggle
+	_ = config.SaveConfig(g_darwinTray.configPath, g_darwinTray.cfg)
 	g_darwinTray.mu.Unlock()
 
-	_ = config.SaveConfig(g_darwinTray.configPath, g_darwinTray.cfg)
 	if g_darwinTray.orch != nil {
-		if newState {
-			_ = g_darwinTray.orch.Start()
-		} else {
-			_ = g_darwinTray.orch.Stop()
-		}
+		g_darwinTray.orch.SetMasterToggle(newState)
 	}
 	g_darwinTray.refreshTrayState()
 }
@@ -126,13 +136,41 @@ func goOnToggleAccount(index int) {
 	g_darwinTray.mu.Lock()
 	if index >= 0 && index < len(g_darwinTray.cfg.Accounts) {
 		g_darwinTray.cfg.Accounts[index].Enabled = !g_darwinTray.cfg.Accounts[index].Enabled
-		accID := g_darwinTray.cfg.Accounts[index].AccountID
+		accID := g_darwinTray.cfg.Accounts[index].ID
 		enabled := g_darwinTray.cfg.Accounts[index].Enabled
+		_ = config.SaveConfig(g_darwinTray.configPath, g_darwinTray.cfg)
 		g_darwinTray.mu.Unlock()
 
-		_ = config.SaveConfig(g_darwinTray.configPath, g_darwinTray.cfg)
 		if g_darwinTray.orch != nil {
 			g_darwinTray.orch.SetAccountEnabled(accID, enabled)
+		}
+		g_darwinTray.refreshTrayState()
+	} else {
+		g_darwinTray.mu.Unlock()
+	}
+}
+
+//export goOnRefreshAccount
+func goOnRefreshAccount(index int) {
+	if g_darwinTray != nil {
+		go g_darwinTray.RefreshAccountTunnels(index)
+	}
+}
+
+//export goOnRemoveAccount
+func goOnRemoveAccount(index int) {
+	if g_darwinTray == nil {
+		return
+	}
+	g_darwinTray.mu.Lock()
+	if index >= 0 && index < len(g_darwinTray.cfg.Accounts) {
+		accID := g_darwinTray.cfg.Accounts[index].ID
+		g_darwinTray.cfg.Accounts = append(g_darwinTray.cfg.Accounts[:index], g_darwinTray.cfg.Accounts[index+1:]...)
+		_ = config.SaveConfig(g_darwinTray.configPath, g_darwinTray.cfg)
+		g_darwinTray.mu.Unlock()
+
+		if g_darwinTray.orch != nil {
+			g_darwinTray.orch.RemoveAccount(accID)
 		}
 		g_darwinTray.refreshTrayState()
 	} else {
@@ -144,6 +182,27 @@ func goOnToggleAccount(index int) {
 func goOnLinkAccount() {
 	if g_darwinTray != nil {
 		go g_darwinTray.StartAssociateFlow()
+	}
+}
+
+//export goOnToggleStartup
+func goOnToggleStartup() {
+	if g_darwinTray != nil {
+		if queryMacServiceStatus() == macSvcNotInstalled {
+			setMacStartupEnabled(!isMacStartupEnabled())
+			g_darwinTray.refreshTrayState()
+		}
+	}
+}
+
+//export goOnServiceAction
+func goOnServiceAction(cAction *C.char) {
+	if g_darwinTray != nil && cAction != nil {
+		act := C.GoString(cAction)
+		go func() {
+			runMacElevatedServiceCmd(act)
+			g_darwinTray.refreshTrayState()
+		}()
 	}
 }
 

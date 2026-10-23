@@ -26,8 +26,9 @@ const (
 	idSvcStart      = 1012
 	idSvcStop       = 1013
 	idSvcUninstall  = 1014
-	idAccToggleBase = 2000
-	idAccRemoveBase = 3000
+	idAccToggleBase  = 2000
+	idAccRemoveBase  = 3000
+	idAccRefreshBase = 4000
 )
 
 type TrayApp struct {
@@ -115,6 +116,7 @@ func (t *TrayApp) Run() {
 	}
 	log.Printf("[TRAY] Shell_NotifyIconW NIM_ADD ret=%v, err=%v, cbSize=%d\n", rAdd, errAdd, t.nid.CbSize)
 	t.refreshTrayState()
+	go t.AutoSyncMissingRoutes()
 	log.Println("[TRAY] Icono de Cloudflare anclado en la barra de tareas.")
 
 	type msg struct {

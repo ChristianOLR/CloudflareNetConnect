@@ -40,15 +40,21 @@ func (t *TrayApp) StartAssociateFlow() {
 		accID, accName := client.ResolveAccountInfo(res.AccountID, res.ZoneID)
 		log.Printf("[AUTH-FLOW] ✅ Cuenta identificada: %s (ID: %s)\n", accName, accID)
 
+		discovered := client.DiscoverRoutes(accID, res.ZoneID)
 		splash.SetSuccess(accName)
 
 		t.mu.Lock()
+		var targetAcc config.AccountConfig
 		exists := false
 		for i, a := range t.cfg.Accounts {
 			if a.AccountID == accID || (a.Name == accName && accName != "") {
 				t.cfg.Accounts[i].APIToken = res.Token
 				t.cfg.Accounts[i].Name = accName
 				t.cfg.Accounts[i].Enabled = true
+				if len(discovered) > 0 {
+					t.cfg.Accounts[i].Routes = mergeRoutes(t.cfg.Accounts[i].Routes, discovered)
+				}
+				targetAcc = t.cfg.Accounts[i]
 				exists = true
 				break
 			}
@@ -59,26 +65,26 @@ func (t *TrayApp) StartAssociateFlow() {
 			if len(shortID) > 8 {
 				shortID = shortID[:8]
 			}
-			newAcc := config.AccountConfig{
+			targetAcc = config.AccountConfig{
 				ID:        shortID,
 				Name:      accName,
 				AccountID: accID,
 				APIToken:  res.Token,
 				Enabled:   true,
-				Routes:    []config.TunnelRoute{},
+				Routes:    discovered,
 			}
-			t.cfg.Accounts = append(t.cfg.Accounts, newAcc)
+			t.cfg.Accounts = append(t.cfg.Accounts, targetAcc)
 		}
 		t.mu.Unlock()
 
 		if err := config.SaveConfig(t.configPath, t.cfg); err != nil {
 			log.Printf("[AUTH-FLOW] Error guardando configuración: %v\n", err)
 		} else {
-			log.Println("[AUTH-FLOW] Configuración actualizada en disco con la nueva cuenta.")
+			log.Printf("[AUTH-FLOW] Configuración guardada (%d túneles descubiertos).\n", len(targetAcc.Routes))
 		}
 
 		if t.orch != nil {
-			t.orch.SetAccountEnabled(accID, true)
+			t.orch.ReloadAccount(targetAcc)
 		}
 		t.refreshTrayState()
 
@@ -86,4 +92,69 @@ func (t *TrayApp) StartAssociateFlow() {
 		splash.Close()
 		cs.Close()
 	}()
+}
+
+// RefreshAccountTunnels consulta a la API de Cloudflare los túneles de una cuenta y recarga sus workers.
+func (t *TrayApp) RefreshAccountTunnels(index int) {
+	t.mu.Lock()
+	if index < 0 || index >= len(t.cfg.Accounts) {
+		t.mu.Unlock()
+		return
+	}
+	acc := t.cfg.Accounts[index]
+	t.mu.Unlock()
+
+	if acc.APIToken == "" {
+		log.Printf("[TUNNEL-SYNC] La cuenta '%s' no tiene token API.\n", acc.Name)
+		return
+	}
+
+	log.Printf("[TUNNEL-SYNC] 🔄 Actualizando túneles desde Cloudflare para '%s'...\n", acc.Name)
+	client := cloudflare.NewClient(acc.APIToken)
+	discovered := client.DiscoverRoutes(acc.AccountID, "")
+
+	t.mu.Lock()
+	if index < len(t.cfg.Accounts) {
+		t.cfg.Accounts[index].Routes = mergeRoutes(t.cfg.Accounts[index].Routes, discovered)
+		acc = t.cfg.Accounts[index]
+		_ = config.SaveConfig(t.configPath, t.cfg)
+	}
+	t.mu.Unlock()
+
+	log.Printf("[TUNNEL-SYNC] ✅ '%s' sincronizada con %d rutas activas.\n", acc.Name, len(acc.Routes))
+	if t.orch != nil {
+		t.orch.ReloadAccount(acc)
+	}
+	t.refreshTrayState()
+}
+
+// AutoSyncMissingRoutes sincroniza al inicio cualquier cuenta que tenga 0 rutas configuradas.
+func (t *TrayApp) AutoSyncMissingRoutes() {
+	t.mu.Lock()
+	count := len(t.cfg.Accounts)
+	t.mu.Unlock()
+	for i := 0; i < count; i++ {
+		t.mu.Lock()
+		needsSync := i < len(t.cfg.Accounts) && len(t.cfg.Accounts[i].Routes) == 0 && t.cfg.Accounts[i].APIToken != ""
+		t.mu.Unlock()
+		if needsSync {
+			t.RefreshAccountTunnels(i)
+		}
+	}
+}
+
+func mergeRoutes(existing, discovered []config.TunnelRoute) []config.TunnelRoute {
+	if len(existing) == 0 {
+		return discovered
+	}
+	byHost := make(map[string]config.TunnelRoute)
+	for _, r := range existing {
+		byHost[r.Hostname] = r
+	}
+	for _, d := range discovered {
+		if _, ok := byHost[d.Hostname]; !ok {
+			existing = append(existing, d)
+		}
+	}
+	return existing
 }

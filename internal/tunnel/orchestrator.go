@@ -104,8 +104,16 @@ func (o *Orchestrator) SetAccountEnabled(accountID string, enabled bool) {
 	defer o.mu.Unlock()
 
 	if !enabled {
+		for _, acc := range o.cfg.Accounts {
+			if acc.ID == accountID || acc.AccountID == accountID {
+				if cancel, exists := o.cancels[acc.ID]; exists {
+					log.Printf("[ORCHESTRATOR] Pausando cuenta: %s\n", acc.ID)
+					cancel()
+					delete(o.cancels, acc.ID)
+				}
+			}
+		}
 		if cancel, exists := o.cancels[accountID]; exists {
-			log.Printf("[ORCHESTRATOR] Pausando cuenta: %s\n", accountID)
 			cancel()
 			delete(o.cancels, accountID)
 		}
@@ -119,6 +127,20 @@ func (o *Orchestrator) SetAccountEnabled(accountID string, enabled bool) {
 				break
 			}
 		}
+	}
+}
+
+// ReloadAccount reinicia en caliente los túneles de una cuenta tras actualizar sus rutas.
+func (o *Orchestrator) ReloadAccount(acc config.AccountConfig) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if cancel, exists := o.cancels[acc.ID]; exists {
+		cancel()
+		delete(o.cancels, acc.ID)
+	}
+	if o.active && o.cfg.MasterToggle && acc.Enabled {
+		o.startAccountLocked(acc)
 	}
 }
 

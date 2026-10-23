@@ -4,7 +4,11 @@
 
 extern void goOnToggleMaster(void);
 extern void goOnToggleAccount(int index);
+extern void goOnRefreshAccount(int index);
+extern void goOnRemoveAccount(int index);
 extern void goOnLinkAccount(void);
+extern void goOnToggleStartup(void);
+extern void goOnServiceAction(const char* action);
 extern void goOnOpenConfig(void);
 extern void goOnQuit(void);
 
@@ -16,42 +20,37 @@ static MacTrayHandler *g_trayHandler = nil;
 
 @implementation MacTrayHandler
 
-- (void)actionToggleMaster:(id)sender {
-    goOnToggleMaster();
-}
+- (void)actionToggleMaster:(id)sender { goOnToggleMaster(); }
+- (void)actionToggleAccount:(id)sender { goOnToggleAccount((int)[(NSMenuItem *)sender tag]); }
+- (void)actionRefreshAccount:(id)sender { goOnRefreshAccount((int)[(NSMenuItem *)sender tag]); }
+- (void)actionRemoveAccount:(id)sender { goOnRemoveAccount((int)[(NSMenuItem *)sender tag]); }
+- (void)actionLinkAccount:(id)sender { goOnLinkAccount(); }
+- (void)actionToggleStartup:(id)sender { goOnToggleStartup(); }
+- (void)actionSvcInstall:(id)sender { goOnServiceAction("install_start"); }
+- (void)actionSvcStart:(id)sender { goOnServiceAction("start"); }
+- (void)actionSvcStop:(id)sender { goOnServiceAction("stop"); }
+- (void)actionSvcUninstall:(id)sender { goOnServiceAction("stop_uninstall"); }
+- (void)actionOpenConfig:(id)sender { goOnOpenConfig(); }
+- (void)actionQuit:(id)sender { goOnQuit(); }
 
-- (void)actionToggleAccount:(id)sender {
-    NSMenuItem *item = (NSMenuItem *)sender;
-    goOnToggleAccount((int)item.tag);
-}
+- (void)setupMenuWithState:(NSDictionary *)state {
+    BOOL masterActive = [state[@"master_active"] boolValue];
+    BOOL startupEnabled = [state[@"startup_enabled"] boolValue];
+    int svcState = [state[@"svc_state"] intValue];
+    NSArray *accounts = state[@"accounts"] ?: @[];
 
-- (void)actionLinkAccount:(id)sender {
-    goOnLinkAccount();
-}
-
-- (void)actionOpenConfig:(id)sender {
-    goOnOpenConfig();
-}
-
-- (void)actionQuit:(id)sender {
-    goOnQuit();
-}
-
-- (void)setupMenuWithMaster:(BOOL)masterActive accounts:(NSArray *)accounts {
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"CloudflareNetConnect"];
+    [menu setAutoenablesItems:NO];
 
     // 1. Cabecera informativa con semáforo
     BOOL effectivelyActive = NO;
     if (masterActive) {
         for (NSDictionary *acc in accounts) {
-            if ([acc[@"enabled"] boolValue]) {
-                effectivelyActive = YES;
-                break;
-            }
+            if ([acc[@"enabled"] boolValue]) { effectivelyActive = YES; break; }
         }
     }
 
-    NSString *headerTitle = @"🔴 CloudflareNetConnect (Servicio Pausado)";
+    NSString *headerTitle = @"🔴 CloudflareNetConnect (Servicio Desactivado)";
     if (effectivelyActive) {
         headerTitle = @"🟢 CloudflareNetConnect (Servicio Activo)";
     } else if (masterActive && accounts.count == 0) {
@@ -65,46 +64,123 @@ static MacTrayHandler *g_trayHandler = nil;
     [menu addItem:[NSMenuItem separatorItem]];
 
     // 2. Interruptor Maestro
-    NSString *masterTitle = masterActive ? @"⚡ Servicio de Túneles Activo (Clic para pausar)" : @"⏸ Servicio de Túneles Pausado (Clic para activar)";
+    NSString *masterTitle = masterActive ? @"⚡ Servicio de Túneles Activo (Clic para Desactivar)" : @"⚡ Activar Servicio de Túneles (Actualmente OFF)";
     NSMenuItem *masterItem = [[NSMenuItem alloc] initWithTitle:masterTitle action:@selector(actionToggleMaster:) keyEquivalent:@""];
     [masterItem setTarget:self];
     [masterItem setState:masterActive ? NSControlStateValueOn : NSControlStateValueOff];
     [menu addItem:masterItem];
     [menu addItem:[NSMenuItem separatorItem]];
 
-    // 3. Sección de Cuentas con bolitas semáforo verde y roja
-    if (accounts.count == 0) {
-        NSMenuItem *noAcc = [[NSMenuItem alloc] initWithTitle:@"(Sin cuentas vinculadas)" action:nil keyEquivalent:@""];
-        [noAcc setEnabled:NO];
-        [menu addItem:noAcc];
-    } else {
-        for (int i = 0; i < (int)accounts.count; i++) {
-            NSDictionary *acc = accounts[i];
-            NSString *name = acc[@"name"];
-            BOOL enabled = [acc[@"enabled"] boolValue];
-            BOOL isOnline = enabled && masterActive;
-            NSString *dot = isOnline ? @"🟢" : @"🔴";
-            NSString *title = [NSString stringWithFormat:@"%@ %@", dot, name];
-            NSMenuItem *accItem = [[NSMenuItem alloc] initWithTitle:title action:@selector(actionToggleAccount:) keyEquivalent:@""];
-            [accItem setTarget:self];
-            [accItem setTag:i];
-            [accItem setState:enabled ? NSControlStateValueOn : NSControlStateValueOff];
-            [menu addItem:accItem];
-        }
-    }
-    [menu addItem:[NSMenuItem separatorItem]];
+    // 3. Sección de Cuentas con Submenú idéntico a Windows
+    for (int i = 0; i < (int)accounts.count; i++) {
+        NSDictionary *acc = accounts[i];
+        NSString *name = acc[@"name"] ?: @"Cuenta Cloudflare";
+        BOOL enabled = [acc[@"enabled"] boolValue];
+        NSArray *routes = acc[@"routes"] ?: @[];
+        BOOL isOnline = enabled && masterActive;
 
-    // 4. Acciones de Configuración
-    NSMenuItem *linkItem = [[NSMenuItem alloc] initWithTitle:@"+ Vincular Cuenta..." action:@selector(actionLinkAccount:) keyEquivalent:@""];
+        NSMenu *subMenu = [[NSMenu alloc] initWithTitle:name];
+        [subMenu setAutoenablesItems:NO];
+
+        NSString *stateLabel = enabled ? @"Dominio Activo (Clic para Desactivar)" : @"Activar conexión de este dominio";
+        NSMenuItem *toggleItem = [[NSMenuItem alloc] initWithTitle:stateLabel action:@selector(actionToggleAccount:) keyEquivalent:@""];
+        [toggleItem setTarget:self];
+        [toggleItem setTag:i];
+        [toggleItem setState:enabled ? NSControlStateValueOn : NSControlStateValueOff];
+        [subMenu addItem:toggleItem];
+
+        NSMenuItem *refreshItem = [[NSMenuItem alloc] initWithTitle:@"🔄 Actualizar túneles" action:@selector(actionRefreshAccount:) keyEquivalent:@""];
+        [refreshItem setTarget:self];
+        [refreshItem setTag:i];
+        [subMenu addItem:refreshItem];
+
+        if (routes.count > 0) {
+            [subMenu addItem:[NSMenuItem separatorItem]];
+            for (NSString *rLabel in routes) {
+                NSMenuItem *rItem = [[NSMenuItem alloc] initWithTitle:rLabel action:nil keyEquivalent:@""];
+                [rItem setEnabled:NO];
+                [subMenu addItem:rItem];
+            }
+        }
+
+        [subMenu addItem:[NSMenuItem separatorItem]];
+        NSMenuItem *removeItem = [[NSMenuItem alloc] initWithTitle:@"🗑️ Desvincular cuenta" action:@selector(actionRemoveAccount:) keyEquivalent:@""];
+        [removeItem setTarget:self];
+        [removeItem setTag:i];
+        [subMenu addItem:removeItem];
+
+        NSString *accTitle = [NSString stringWithFormat:@"%@ %@", isOnline ? @"🟢" : @"🔴", name];
+        NSMenuItem *accParent = [[NSMenuItem alloc] initWithTitle:accTitle action:nil keyEquivalent:@""];
+        [accParent setSubmenu:subMenu];
+        [menu addItem:accParent];
+    }
+
+    if (accounts.count > 0) {
+        [menu addItem:[NSMenuItem separatorItem]];
+    }
+
+    // 4. Asociar nueva cuenta
+    NSMenuItem *linkItem = [[NSMenuItem alloc] initWithTitle:@"➕ Asociar nueva cuenta..." action:@selector(actionLinkAccount:) keyEquivalent:@""];
     [linkItem setTarget:self];
     [menu addItem:linkItem];
 
-    NSMenuItem *cfgItem = [[NSMenuItem alloc] initWithTitle:@"⚙️ Abrir Configuración..." action:@selector(actionOpenConfig:) keyEquivalent:@""];
+    // 5. Submenú Servicio del Sistema (Autoarranque) idéntico a Windows
+    NSMenu *svcMenu = [[NSMenu alloc] initWithTitle:@"Servicio del Sistema"];
+    [svcMenu setAutoenablesItems:NO];
+    BOOL isSvcInstalled = (svcState != 0);
+
+    NSString *autoText = isSvcInstalled ? @"Iniciar al encender el Mac (Gestionado por Servicio)" : @"Iniciar aplicación al encender el Mac";
+    NSMenuItem *autoItem = [[NSMenuItem alloc] initWithTitle:autoText action:@selector(actionToggleStartup:) keyEquivalent:@""];
+    [autoItem setTarget:self];
+    [autoItem setState:(isSvcInstalled || startupEnabled) ? NSControlStateValueOn : NSControlStateValueOff];
+    if (isSvcInstalled) [autoItem setEnabled:NO];
+    [svcMenu addItem:autoItem];
+    [svcMenu addItem:[NSMenuItem separatorItem]];
+
+    if (svcState == 4) {
+        NSMenuItem *st = [[NSMenuItem alloc] initWithTitle:@"🟢 Servicio macOS: Activo (2º Plano)" action:nil keyEquivalent:@""];
+        [st setEnabled:NO];
+        [svcMenu addItem:st];
+        [svcMenu addItem:[NSMenuItem separatorItem]];
+        NSMenuItem *bStop = [[NSMenuItem alloc] initWithTitle:@"⏹️ Detener Servicio macOS" action:@selector(actionSvcStop:) keyEquivalent:@""];
+        [bStop setTarget:self];
+        [svcMenu addItem:bStop];
+        NSMenuItem *bUn = [[NSMenuItem alloc] initWithTitle:@"🗑️ Desinstalar Servicio macOS" action:@selector(actionSvcUninstall:) keyEquivalent:@""];
+        [bUn setTarget:self];
+        [svcMenu addItem:bUn];
+    } else if (svcState == 1) {
+        NSMenuItem *st = [[NSMenuItem alloc] initWithTitle:@"🔴 Servicio macOS: Detenido (Instalado)" action:nil keyEquivalent:@""];
+        [st setEnabled:NO];
+        [svcMenu addItem:st];
+        [svcMenu addItem:[NSMenuItem separatorItem]];
+        NSMenuItem *bStart = [[NSMenuItem alloc] initWithTitle:@"▶️ Iniciar Servicio macOS" action:@selector(actionSvcStart:) keyEquivalent:@""];
+        [bStart setTarget:self];
+        [svcMenu addItem:bStart];
+        NSMenuItem *bUn = [[NSMenuItem alloc] initWithTitle:@"🗑️ Desinstalar Servicio macOS" action:@selector(actionSvcUninstall:) keyEquivalent:@""];
+        [bUn setTarget:self];
+        [svcMenu addItem:bUn];
+    } else {
+        NSMenuItem *st = [[NSMenuItem alloc] initWithTitle:@"🔴 Servicio macOS: No Instalado" action:nil keyEquivalent:@""];
+        [st setEnabled:NO];
+        [svcMenu addItem:st];
+        [svcMenu addItem:[NSMenuItem separatorItem]];
+        NSMenuItem *bInst = [[NSMenuItem alloc] initWithTitle:@"➕ Instalar y Activar Servicio macOS (2º Plano)" action:@selector(actionSvcInstall:) keyEquivalent:@""];
+        [bInst setTarget:self];
+        [svcMenu addItem:bInst];
+    }
+
+    NSString *svcDot = (svcState == 4 || startupEnabled) ? @"🟢" : @"🔴";
+    NSString *svcParentTitle = [NSString stringWithFormat:@"%@ ⚙️ Servicio del Sistema (Autoarranque)", svcDot];
+    NSMenuItem *svcParent = [[NSMenuItem alloc] initWithTitle:svcParentTitle action:nil keyEquivalent:@""];
+    [svcParent setSubmenu:svcMenu];
+    [menu addItem:svcParent];
+
+    // 6. Abrir carpeta de configuración y Salir
+    NSMenuItem *cfgItem = [[NSMenuItem alloc] initWithTitle:@"📂 Abrir Carpeta de Configuración..." action:@selector(actionOpenConfig:) keyEquivalent:@""];
     [cfgItem setTarget:self];
     [menu addItem:cfgItem];
     [menu addItem:[NSMenuItem separatorItem]];
 
-    // 5. Salir
     NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:@"❌ Salir" action:@selector(actionQuit:) keyEquivalent:@"q"];
     [quitItem setTarget:self];
     [menu addItem:quitItem];
@@ -118,15 +194,10 @@ void initMacTray(const void* iconBytes, int iconLen) {
     @autoreleasepool {
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
-
         g_trayHandler = [[MacTrayHandler alloc] init];
-
-        NSStatusBar *statusBar = [NSStatusBar systemStatusBar];
-        g_trayHandler.statusItem = [statusBar statusItemWithLength:NSSquareStatusItemLength];
-
+        g_trayHandler.statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSSquareStatusItemLength];
         if (iconBytes != NULL && iconLen > 0) {
-            NSData *data = [NSData dataWithBytes:iconBytes length:iconLen];
-            NSImage *img = [[NSImage alloc] initWithData:data];
+            NSImage *img = [[NSImage alloc] initWithData:[NSData dataWithBytes:iconBytes length:iconLen]];
             if (img) {
                 [img setSize:NSMakeSize(18, 18)];
                 [img setTemplate:NO];
@@ -136,19 +207,15 @@ void initMacTray(const void* iconBytes, int iconLen) {
     }
 }
 
-void setMacMenu(int masterActive, const char* accountsJson, const void* iconBytes, int iconLen) {
+void setMacMenu(const char* stateJson, const void* iconBytes, int iconLen) {
     @autoreleasepool {
-        NSString *jsonStr = [NSString stringWithUTF8String:accountsJson];
+        NSString *jsonStr = [NSString stringWithUTF8String:stateJson];
         NSData *jsonData = [jsonStr dataUsingEncoding:NSUTF8StringEncoding];
-        NSArray *accs = @[];
+        NSDictionary *state = @{};
         if (jsonData) {
-            accs = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:nil] ?: @[];
+            state = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:nil] ?: @{};
         }
-
-        NSData *iconData = nil;
-        if (iconBytes != NULL && iconLen > 0) {
-            iconData = [NSData dataWithBytes:iconBytes length:iconLen];
-        }
+        NSData *iconData = (iconBytes != NULL && iconLen > 0) ? [NSData dataWithBytes:iconBytes length:iconLen] : nil;
 
         dispatch_async(dispatch_get_main_queue(), ^{
             if (iconData) {
@@ -160,21 +227,17 @@ void setMacMenu(int masterActive, const char* accountsJson, const void* iconByte
                     g_trayHandler.statusItem.button.title = @"";
                 }
             }
-            [g_trayHandler setupMenuWithMaster:(masterActive != 0) accounts:accs];
+            [g_trayHandler setupMenuWithState:state];
         });
     }
 }
 
-void runMacLoop(void) {
-    @autoreleasepool {
-        [NSApp run];
-    }
-}
+void runMacLoop(void) { @autoreleasepool { [NSApp run]; } }
 
 void stopMacLoop(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         [NSApp stop:nil];
-        NSEvent *event = [NSEvent otherEventWithType:NSEventTypeApplicationDefined location:NSMakePoint(0, 0) modifierFlags:0 timestamp:0 windowNumber:0 context:nil subtype:0 data1:0 data2:0];
-        [NSApp postEvent:event atStart:YES];
+        NSEvent *ev = [NSEvent otherEventWithType:NSEventTypeApplicationDefined location:NSMakePoint(0, 0) modifierFlags:0 timestamp:0 windowNumber:0 context:nil subtype:0 data1:0 data2:0];
+        [NSApp postEvent:ev atStart:YES];
     });
 }
