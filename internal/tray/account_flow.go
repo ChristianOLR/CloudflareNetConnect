@@ -128,14 +128,14 @@ func (t *TrayApp) RefreshAccountTunnels(index int) {
 	t.refreshTrayState()
 }
 
-// AutoSyncMissingRoutes sincroniza al inicio cualquier cuenta que tenga 0 rutas configuradas.
+// AutoSyncMissingRoutes sincroniza al inicio cualquier cuenta que tenga APIToken configurado.
 func (t *TrayApp) AutoSyncMissingRoutes() {
 	t.mu.Lock()
 	count := len(t.cfg.Accounts)
 	t.mu.Unlock()
 	for i := 0; i < count; i++ {
 		t.mu.Lock()
-		needsSync := i < len(t.cfg.Accounts) && len(t.cfg.Accounts[i].Routes) == 0 && t.cfg.Accounts[i].APIToken != ""
+		needsSync := i < len(t.cfg.Accounts) && t.cfg.Accounts[i].APIToken != ""
 		t.mu.Unlock()
 		if needsSync {
 			t.RefreshAccountTunnels(i)
@@ -147,14 +147,29 @@ func mergeRoutes(existing, discovered []config.TunnelRoute) []config.TunnelRoute
 	if len(existing) == 0 {
 		return discovered
 	}
+	if len(discovered) == 0 {
+		return existing
+	}
 	byHost := make(map[string]config.TunnelRoute)
 	for _, r := range existing {
 		byHost[r.Hostname] = r
 	}
+	var merged []config.TunnelRoute
+	seen := make(map[string]bool)
 	for _, d := range discovered {
-		if _, ok := byHost[d.Hostname]; !ok {
-			existing = append(existing, d)
+		if ex, ok := byHost[d.Hostname]; ok {
+			d.Enabled = ex.Enabled
+			if ex.LocalPort > 0 {
+				d.LocalPort = ex.LocalPort
+			}
+		}
+		merged = append(merged, d)
+		seen[d.Hostname] = true
+	}
+	for _, r := range existing {
+		if !seen[r.Hostname] {
+			merged = append(merged, r)
 		}
 	}
-	return existing
+	return merged
 }
