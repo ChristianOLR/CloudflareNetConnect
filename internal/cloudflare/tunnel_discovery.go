@@ -31,6 +31,7 @@ type dnsRecord struct {
 func (c *Client) DiscoverRoutes(accountID, zoneID string) []config.TunnelRoute {
 	var routes []config.TunnelRoute
 	seen := make(map[string]bool)
+	usedPorts := make(map[int]bool)
 
 	addRoute := func(hostname string, port int, proto string) {
 		hostname = strings.TrimSpace(strings.ToLower(hostname))
@@ -38,6 +39,10 @@ func (c *Client) DiscoverRoutes(accountID, zoneID string) []config.TunnelRoute {
 			return
 		}
 		seen[hostname] = true
+		for usedPorts[port] {
+			port++
+		}
+		usedPorts[port] = true
 		routes = append(routes, config.TunnelRoute{
 			Hostname:  hostname,
 			LocalPort: port,
