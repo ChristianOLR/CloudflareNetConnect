@@ -73,9 +73,7 @@ func (s *SplashWindow) Close() {
 	s.closeOnce.Do(func() { close(s.done) })
 }
 
-func (s *SplashWindow) Wait() {
-	<-s.done
-}
+func (s *SplashWindow) Wait() { <-s.done }
 
 func (s *SplashWindow) runNativeFrameless() {
 	runtime.LockOSThread()
@@ -123,35 +121,44 @@ func (s *SplashWindow) runNativeFrameless() {
 				s.mu.Unlock()
 				u32.NewProc("InvalidateRect").Call(uintptr(hWnd), 0, 0)
 				return 0
+			case 0x0200: // WM_MOUSEMOVE
+				x := int32(int16(lp & 0xFFFF))
+				y := int32(int16((lp >> 16) & 0xFFFF))
+				cId := uintptr(32512) // IDC_ARROW
+				if (x >= 24 && x <= 356 && y >= 218 && y <= 330) || (x >= 100 && x <= 280 && y >= 335 && y <= 385) {
+					cId = 32649 // IDC_HAND
+				}
+				hC, _, _ := u32.NewProc("LoadCursorW").Call(0, cId)
+				u32.NewProc("SetCursor").Call(hC)
+				return 0
 			case 0x0201: // WM_LBUTTONDOWN
-				x := int32(lp & 0xFFFF)
-				y := int32((lp >> 16) & 0xFFFF)
-				// Botón 1: Copiar Enlace [32..348, 224..268]
-				if x >= 32 && x <= 348 && y >= 224 && y <= 268 {
-					CopyToClipboard(s.authURL)
+				x := int32(int16(lp & 0xFFFF))
+				y := int32(int16((lp >> 16) & 0xFFFF))
+				if x >= 24 && x <= 356 && y >= 218 && y <= 274 {
+					CopyToClipboardWithHwnd(hWnd, s.authURL)
 					s.mu.Lock()
 					s.copiedState = true
 					s.mu.Unlock()
-					u32.NewProc("InvalidateRect").Call(uintptr(hWnd), 0, 0)
+					u32.NewProc("InvalidateRect").Call(uintptr(hWnd), 0, 1)
+					u32.NewProc("UpdateWindow").Call(uintptr(hWnd))
 					go func() {
 						time.Sleep(3 * time.Second)
 						s.mu.Lock()
 						s.copiedState = false
 						s.mu.Unlock()
+						u32.NewProc("InvalidateRect").Call(uintptr(hWnd), 0, 1)
+						u32.NewProc("UpdateWindow").Call(uintptr(hWnd))
 					}()
 					return 0
 				}
-				// Botón 2: Abrir en Navegador [32..348, 280..322]
-				if x >= 32 && x <= 348 && y >= 280 && y <= 322 {
+				if x >= 24 && x <= 356 && y >= 275 && y <= 330 {
 					_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", s.authURL).Start()
 					return 0
 				}
-				// Botón 3: Cancelar [125..255, 340..374]
-				if x >= 125 && x <= 255 && y >= 340 && y <= 374 {
+				if x >= 100 && x <= 280 && y >= 335 && y <= 385 {
 					u32.NewProc("DestroyWindow").Call(uintptr(hWnd))
 					return 0
 				}
-				// Arrastrar ventana desde cualquier punto libre
 				u32.NewProc("ReleaseCapture").Call()
 				u32.NewProc("SendMessageW").Call(uintptr(hWnd), 0x00A1, 2, 0)
 				return 0
