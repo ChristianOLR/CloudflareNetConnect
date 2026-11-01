@@ -4,6 +4,8 @@ package tray
 
 /*
 #include <stdlib.h>
+
+void stopMacLoop(void);
 */
 import "C"
 

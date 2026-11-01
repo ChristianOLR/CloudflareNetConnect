@@ -4,6 +4,7 @@ bin/
 *.dll
 *.so
 *.dylib
+!internal/wireguard/assets/*.dll
 
 # Configuraciones locales con credenciales
 config/netconnect.json
