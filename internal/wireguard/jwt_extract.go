@@ -42,6 +42,12 @@ func ExtractZeroTrustToken(raw string) string {
 func cleanJWT(token string) string {
 	token = strings.TrimSpace(token)
 	token = strings.Trim(token, `"'`)
+	if strings.HasPrefix(token, "http://") || strings.HasPrefix(token, "https://") {
+		return ""
+	}
+	if !strings.HasPrefix(token, "eyJ") {
+		return ""
+	}
 	parts := strings.Split(token, ".")
 	if len(parts) == 3 && len(parts[0]) > 5 && len(parts[1]) > 5 {
 		return token

@@ -99,13 +99,25 @@ func HandleIncomingWarpToken(rawToken, configPath string) bool {
 
 	updated := false
 	for i := range cfg.Accounts {
-		if cfg.Accounts[i].PrivateNetwork != nil {
+		if cfg.Accounts[i].PrivateNetwork != nil && cfg.Accounts[i].PrivateNetwork.Enabled {
 			cfg.Accounts[i].PrivateNetwork.ZeroTrustToken = token
 			cfg.Accounts[i].PrivateNetwork.DeviceID = ""
 			cfg.Accounts[i].PrivateNetwork.Token = ""
 			_, _ = wireguard.EnsureEnrolled(cfg.Accounts[i].PrivateNetwork)
 			updated = true
 			break
+		}
+	}
+	if !updated {
+		for i := range cfg.Accounts {
+			if cfg.Accounts[i].PrivateNetwork != nil {
+				cfg.Accounts[i].PrivateNetwork.ZeroTrustToken = token
+				cfg.Accounts[i].PrivateNetwork.DeviceID = ""
+				cfg.Accounts[i].PrivateNetwork.Token = ""
+				_, _ = wireguard.EnsureEnrolled(cfg.Accounts[i].PrivateNetwork)
+				updated = true
+				break
+			}
 		}
 	}
 	if updated {
