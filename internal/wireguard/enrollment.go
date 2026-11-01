@@ -55,14 +55,25 @@ func EnsureEnrolled(pn *config.PrivateNetworkConfig) (*EnrollmentResult, error) 
 		return nil, fmt.Errorf("configuración de red privada nula")
 	}
 	if pn.DeviceID != "" && pn.PrivateKey != "" && pn.AddressIPv4 != "" {
+		if needsZeroTrustPeerBackfill(pn.PeerEndpoint, pn.AddressIPv4) {
+			pub, ep := fetchRegisteredPeer(pn.DeviceID, pn.Token, pn.AddressIPv4)
+			pn.PeerPubKey = pub
+			pn.PeerEndpoint = ep
+		}
+		if pn.PeerPubKey == "" {
+			pn.PeerPubKey = cfPeerPubKey
+		}
+		if pn.PeerEndpoint == "" {
+			_, pn.PeerEndpoint = extractPeerFromConfig(nil, pn.AddressIPv4)
+		}
 		return &EnrollmentResult{
 			DeviceID:     pn.DeviceID,
 			Token:        pn.Token,
 			PrivateKey:   pn.PrivateKey,
 			AddressIPv4:  pn.AddressIPv4,
 			AddressIPv6:  pn.AddressIPv6,
-			PeerPubKey:   cfPeerPubKey,
-			PeerEndpoint: cfDefaultPeer,
+			PeerPubKey:   pn.PeerPubKey,
+			PeerEndpoint: pn.PeerEndpoint,
 		}, nil
 	}
 
@@ -126,6 +137,7 @@ func EnsureEnrolled(pn *config.PrivateNetworkConfig) (*EnrollmentResult, error) 
 					V6 string `json:"v6"`
 				} `json:"addresses"`
 			} `json:"interface"`
+			Peers []cfPeerConfig `json:"peers"`
 		} `json:"config"`
 	}
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
@@ -134,15 +146,18 @@ func EnsureEnrolled(pn *config.PrivateNetworkConfig) (*EnrollmentResult, error) 
 
 	activateWARP(client, parsed.ID, parsed.Token)
 
+	addrV4 := parsed.Config.Interface.Addresses.V4
+	peerPub, peerEp := extractPeerFromConfig(parsed.Config.Peers, addrV4)
+
 	res := &EnrollmentResult{
 		DeviceID:     parsed.ID,
 		Token:        parsed.Token,
 		PrivateKey:   privKey,
 		PublicKey:    pubKey,
-		AddressIPv4:  parsed.Config.Interface.Addresses.V4,
+		AddressIPv4:  addrV4,
 		AddressIPv6:  parsed.Config.Interface.Addresses.V6,
-		PeerPubKey:   cfPeerPubKey,
-		PeerEndpoint: cfDefaultPeer,
+		PeerPubKey:   peerPub,
+		PeerEndpoint: peerEp,
 	}
 
 	pn.DeviceID = res.DeviceID
@@ -150,6 +165,8 @@ func EnsureEnrolled(pn *config.PrivateNetworkConfig) (*EnrollmentResult, error) 
 	pn.PrivateKey = res.PrivateKey
 	pn.AddressIPv4 = res.AddressIPv4
 	pn.AddressIPv6 = res.AddressIPv6
+	pn.PeerPubKey = res.PeerPubKey
+	pn.PeerEndpoint = res.PeerEndpoint
 	return res, nil
 }
 

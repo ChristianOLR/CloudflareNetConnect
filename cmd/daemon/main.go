@@ -43,6 +43,7 @@ func main() {
 	}
 
 	orch := tunnel.NewOrchestrator(cfg)
+	orch.SetConfigPath(*configPath)
 	svc, err := service.ConfigService(orch)
 	if err != nil {
 		log.Fatalf("[FATAL] Error configurando servicio: %v", err)

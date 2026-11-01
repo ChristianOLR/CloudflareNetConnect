@@ -42,7 +42,7 @@ func (d *DarwinTunnel) Start() error {
 		return fmt.Errorf("error enrolando dispositivo: %w", err)
 	}
 
-	tunDev, err := tun.CreateTUN("utun", 1420)
+	tunDev, err := tun.CreateTUN("utun", 1280)
 	if err != nil {
 		return fmt.Errorf("error creando interfaz utun nativa: %w", err)
 	}
@@ -144,10 +144,23 @@ func (d *DarwinTunnel) Resume() error {
 	if d.status != StatusPausedLocal {
 		return nil
 	}
+	if d.dev != nil {
+		_ = d.dev.BindUpdate()
+	}
 	if d.cfg.CIDR != "" && d.ifName != "" {
 		_ = exec.Command("route", "add", "-net", d.cfg.CIDR, "-interface", d.ifName).Run()
 	}
 	d.status = StatusConnected
 	log.Printf("[WG:macOS] ▶️ Red Privada reanudada (Conexión remota activa).\n")
+	return nil
+}
+
+func (d *DarwinTunnel) Rebind() error {
+	d.mu.RLock()
+	dev := d.dev
+	d.mu.RUnlock()
+	if dev != nil {
+		return dev.BindUpdate()
+	}
 	return nil
 }

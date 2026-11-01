@@ -10,8 +10,9 @@ import (
 )
 
 var (
-	modiphlpapi          = windows.NewLazySystemDLL("iphlpapi.dll")
-	procNotifyAddrChange = modiphlpapi.NewProc("NotifyAddrChange")
+	modiphlpapi              = windows.NewLazySystemDLL("iphlpapi.dll")
+	procNotifyAddrChange     = modiphlpapi.NewProc("NotifyAddrChange")
+	procCancelIPChangeNotify = modiphlpapi.NewProc("CancelIPChangeNotify")
 )
 
 // StartWatcher inicia el oyente de eventos de red del kernel de Windows sin consumo de CPU.
@@ -36,23 +37,36 @@ func (d *NetworkDetector) StartWatcher() {
 
 			var handle windows.Handle
 			var overlapped windows.Overlapped
+			addrChanged := false
 			event, err := windows.CreateEvent(nil, 0, 0, nil)
 			if err == nil && event != 0 {
 				overlapped.HEvent = event
 				r, _, _ := procNotifyAddrChange.Call(uintptr(unsafe.Pointer(&handle)), uintptr(unsafe.Pointer(&overlapped)))
 				if r == 997 { // ERROR_IO_PENDING
-					_, _ = windows.WaitForSingleObject(event, 5000)
+					waitRes, _ := windows.WaitForSingleObject(event, 2500)
+					if waitRes == windows.WAIT_OBJECT_0 {
+						addrChanged = true
+					} else {
+						_, _, _ = procCancelIPChangeNotify.Call(uintptr(unsafe.Pointer(&overlapped)))
+					}
+				} else if r == 0 {
+					addrChanged = true
 				}
 				_ = windows.CloseHandle(event)
 			} else {
-				time.Sleep(5 * time.Second)
+				time.Sleep(2500 * time.Millisecond)
 			}
 
 			select {
 			case <-d.stopCh:
 				return
 			default:
-				d.CheckNow()
+				if addrChanged {
+					time.Sleep(350 * time.Millisecond)
+					d.ForceCheck()
+				} else {
+					d.CheckNow()
+				}
 			}
 		}
 	}()

@@ -48,7 +48,7 @@ func (w *WindowsTunnel) Start() error {
 		return fmt.Errorf("error enrolando dispositivo: %w", err)
 	}
 
-	tunDev, err := tun.CreateTUN("CloudflareNetConnect", 1420)
+	tunDev, err := tun.CreateTUN("CloudflareNetConnect", 1280)
 	if err != nil {
 		return fmt.Errorf("error creando interfaz wintun: %w", err)
 	}
@@ -105,7 +105,7 @@ func (w *WindowsTunnel) Start() error {
 
 	_ = dev.Up()
 	w.status = StatusConnected
-	log.Printf("[WG] ✅ Red Privada activa hacia %s (IP túnel: %s)\n", w.cfg.CIDR, assignedPrefix.Addr())
+	log.Printf("[WG] ✅ Red Privada activa hacia %s (IP túnel: %s, Endpoint: %s)\n", w.cfg.CIDR, assignedPrefix.Addr(), peerEndpoint)
 	return nil
 }
 
@@ -156,10 +156,23 @@ func (w *WindowsTunnel) Resume() error {
 	if w.status != StatusPausedLocal {
 		return nil
 	}
+	if w.dev != nil {
+		_ = w.dev.BindUpdate()
+	}
 	if w.destCIDR.IsValid() {
 		_ = w.luid.AddRoute(w.destCIDR, netip.IPv4Unspecified(), 0)
 	}
 	w.status = StatusConnected
 	log.Printf("[WG] ▶️ Red Privada reanudada (Conexión remota activa).\n")
+	return nil
+}
+
+func (w *WindowsTunnel) Rebind() error {
+	w.mu.RLock()
+	dev := w.dev
+	w.mu.RUnlock()
+	if dev != nil {
+		return dev.BindUpdate()
+	}
 	return nil
 }

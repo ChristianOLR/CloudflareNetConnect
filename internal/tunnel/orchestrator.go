@@ -12,15 +12,16 @@ import (
 
 // Orchestrator gestiona el ciclo de vida concurrente de las conexiones por cuenta.
 type Orchestrator struct {
-	mu           sync.RWMutex
-	cfg          *config.AppConfig
+	mu            sync.RWMutex
+	cfg           *config.AppConfig
+	configPath    string
 	cancels       map[string]context.CancelFunc
 	wgTunnels     map[string]wireguard.Tunnel
 	netDetectors  map[string]*netmonitor.NetworkDetector
 	onStateChange func()
 	active        bool
-	globalCtx    context.Context
-	globalCancel context.CancelFunc
+	globalCtx     context.Context
+	globalCancel  context.CancelFunc
 }
 
 // NewOrchestrator instancia el orquestador multi-cuenta.

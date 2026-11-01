@@ -65,6 +65,8 @@ func (o *Orchestrator) reconcilePrivateNetwork(accountID string, inLocal bool) {
 	} else if tun.Status() == wireguard.StatusPausedLocal {
 		_ = tun.Resume()
 		log.Printf("[ORCH-RECONCILE:%s] 🟢 Reanudando túnel remoto tras salir de LAN local\n", accountID)
+	} else if tun.Status() == wireguard.StatusConnected {
+		_ = tun.Rebind()
 	}
 
 	o.notifyStateChangeLocked()
@@ -94,8 +96,8 @@ func (o *Orchestrator) resolveVirtualCIDR(accountID, targetCIDR string) string {
 		if inUse {
 			continue
 		}
-		for _, t := range o.wgTunnels {
-			if t.VirtualCIDR() == candidate {
+		for id, t := range o.wgTunnels {
+			if id != accountID && t.VirtualCIDR() == candidate {
 				inUse = true
 				break
 			}

@@ -36,3 +36,7 @@ func (s *StubTunnel) Resume() error {
 	s.status = StatusConnected
 	return nil
 }
+
+func (s *StubTunnel) Rebind() error {
+	return nil
+}

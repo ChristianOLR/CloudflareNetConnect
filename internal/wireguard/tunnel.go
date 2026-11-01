@@ -26,6 +26,7 @@ type Tunnel interface {
 	Stop() error
 	Pause() error
 	Resume() error
+	Rebind() error
 	Status() TunnelStatus
 	CIDR() string
 	VirtualCIDR() string
@@ -90,13 +91,16 @@ func toHexKey(b64Key string) string {
 }
 
 func resolvePeerEndpoint(endpoint string) string {
-	ep := strings.TrimSpace(endpoint)
+	ep := normalizeEndpointAddr(endpoint, 2408)
 	if ep == "" {
 		ep = cfDefaultPeer
 	}
 	addr, err := net.ResolveUDPAddr("udp", ep)
 	if err == nil && addr != nil {
 		return addr.String()
+	}
+	if strings.HasPrefix(ep, "162.159.193.") {
+		return cfZeroTrustDefaultPeer
 	}
 	return "162.159.192.1:2408"
 }

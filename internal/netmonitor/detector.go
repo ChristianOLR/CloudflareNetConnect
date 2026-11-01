@@ -38,6 +38,15 @@ func (d *NetworkDetector) InLocal() bool {
 
 // CheckNow evalúa de inmediato si la máquina se encuentra en la subred local física.
 func (d *NetworkDetector) CheckNow() bool {
+	return d.evaluate(false)
+}
+
+// ForceCheck reevalúa la red y fuerza notificación al orquestador tras un cambio de interfaz física.
+func (d *NetworkDetector) ForceCheck() bool {
+	return d.evaluate(true)
+}
+
+func (d *NetworkDetector) evaluate(forceNotify bool) bool {
 	isLocal := d.probeNetwork()
 
 	d.mu.Lock()
@@ -52,9 +61,9 @@ func (d *NetworkDetector) CheckNow() bool {
 		} else {
 			log.Printf("[NET-DETECT] 🌍 Red externa detectada (Fuera de la LAN local).\n")
 		}
-		if callback != nil {
-			go callback(isLocal)
-		}
+	}
+	if (changed || forceNotify) && callback != nil {
+		go callback(isLocal)
 	}
 	return isLocal
 }
@@ -81,8 +90,7 @@ func (d *NetworkDetector) probeNetwork() bool {
 			continue
 		}
 		// Ignorar interfaces de túneles virtuales
-		name := strings.ToLower(iface.Name)
-		if strings.Contains(name, "wintun") || strings.Contains(name, "cloudflare") || strings.Contains(name, "utun") {
+		if isVirtualAdapterName(iface.Name) {
 			continue
 		}
 
@@ -146,8 +154,7 @@ func HasLocalPhysicalSubnet(cidr string) bool {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 			continue
 		}
-		name := strings.ToLower(iface.Name)
-		if strings.Contains(name, "wintun") || strings.Contains(name, "cloudflare") || strings.Contains(name, "utun") {
+		if isVirtualAdapterName(iface.Name) {
 			continue
 		}
 		addrs, err := iface.Addrs()
@@ -168,4 +175,12 @@ func HasLocalPhysicalSubnet(cidr string) bool {
 		}
 	}
 	return false
+}
+
+func isVirtualAdapterName(raw string) bool {
+	name := strings.ToLower(raw)
+	return strings.Contains(name, "wintun") ||
+		strings.Contains(name, "cloudflare") ||
+		strings.Contains(name, "utun") ||
+		strings.HasPrefix(name, "cfw-")
 }

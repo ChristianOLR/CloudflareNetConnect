@@ -29,6 +29,8 @@ type PrivateNetworkConfig struct {
 	PrivateKey         string `json:"private_key,omitempty"`
 	AddressIPv4        string `json:"address_ipv4,omitempty"`
 	AddressIPv6        string `json:"address_ipv6,omitempty"`
+	PeerPubKey         string `json:"peer_public_key,omitempty"`
+	PeerEndpoint       string `json:"peer_endpoint,omitempty"`
 }
 
 // AccountConfig contiene las credenciales y rutas por organización o dominio.

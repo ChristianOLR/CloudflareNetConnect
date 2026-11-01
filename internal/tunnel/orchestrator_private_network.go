@@ -8,6 +8,13 @@ import (
 	"github.com/chgarcia79/cloudflarenetconnect/internal/wireguard"
 )
 
+// SetConfigPath registra la ruta del archivo JSON para persistir metadatos de enrolamiento.
+func (o *Orchestrator) SetConfigPath(path string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.configPath = path
+}
+
 func (o *Orchestrator) startPrivateNetworkLocked(acc config.AccountConfig) {
 	if acc.PrivateNetwork == nil || !acc.PrivateNetwork.Enabled || acc.PrivateNetwork.CIDR == "" {
 		return
@@ -25,27 +32,40 @@ func (o *Orchestrator) startPrivateNetworkLocked(acc config.AccountConfig) {
 		log.Printf("[ORCH-NAT:%s] 🔀 Conflicto en %s -> Mapeado virtual a %s\n", acc.ID, acc.PrivateNetwork.CIDR, virtCIDR)
 	}
 
-	if acc.PrivateNetwork.AutoDetect {
-		detector, detExists := o.netDetectors[acc.ID]
-		if !detExists {
-			probeIP := acc.PrivateNetwork.LocalProbeIP
-			accID := acc.ID
-			detector = netmonitor.NewDetector(acc.PrivateNetwork.CIDR, probeIP, func(inLocal bool) {
-				o.reconcilePrivateNetwork(accID, inLocal)
-			})
-			o.netDetectors[acc.ID] = detector
-			detector.StartWatcher()
-		}
+	detector, detExists := o.netDetectors[acc.ID]
+	if !detExists {
+		probeIP := acc.PrivateNetwork.LocalProbeIP
+		accID := acc.ID
+		detector = netmonitor.NewDetector(acc.PrivateNetwork.CIDR, probeIP, func(inLocal bool) {
+			o.reconcilePrivateNetwork(accID, inLocal)
+		})
+		o.netDetectors[acc.ID] = detector
+		detector.StartWatcher()
+	}
 
-		if detector.InLocal() {
-			_ = tun.Start()
-			_ = tun.Pause()
-			return
-		}
+	prevDeviceID := acc.PrivateNetwork.DeviceID
+	prevEndpoint := acc.PrivateNetwork.PeerEndpoint
+
+	if acc.PrivateNetwork.AutoDetect && detector.InLocal() {
+		_ = tun.Start()
+		_ = tun.Pause()
+		o.persistBackfillLocked(prevDeviceID, prevEndpoint, acc.PrivateNetwork)
+		return
 	}
 
 	if err := tun.Start(); err != nil {
 		log.Printf("[ORCH-WG-ERR:%s] Error iniciando red privada: %v\n", acc.ID, err)
+		return
+	}
+	o.persistBackfillLocked(prevDeviceID, prevEndpoint, acc.PrivateNetwork)
+}
+
+func (o *Orchestrator) persistBackfillLocked(prevDeviceID, prevEndpoint string, pn *config.PrivateNetworkConfig) {
+	if o.configPath == "" || pn == nil {
+		return
+	}
+	if pn.DeviceID != prevDeviceID || pn.PeerEndpoint != prevEndpoint {
+		_ = config.SaveConfig(o.configPath, o.cfg)
 	}
 }
 
