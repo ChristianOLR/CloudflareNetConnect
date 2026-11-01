@@ -76,6 +76,9 @@ func (w *WindowsTunnel) Start() error {
 	}
 
 	cidrStr := strings.TrimSpace(w.cfg.CIDR)
+	if w.virtualCIDR != "" {
+		cidrStr = strings.TrimSpace(w.virtualCIDR)
+	}
 	if cidrStr != "" {
 		if destPrefix, err := netip.ParsePrefix(cidrStr); err == nil {
 			w.destCIDR = destPrefix
@@ -84,7 +87,8 @@ func (w *WindowsTunnel) Start() error {
 		}
 	}
 
-	dev := device.NewDevice(tunDev, conn.NewDefaultBind(), device.NewLogger(device.LogLevelError, "[WG] "))
+	wrappedTun := WrapNATDevice(tunDev, w.nat)
+	dev := device.NewDevice(wrappedTun, conn.NewDefaultBind(), device.NewLogger(device.LogLevelError, "[WG] "))
 	w.dev = dev
 
 	privHex := toHexKey(enrolled.PrivateKey)

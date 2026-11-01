@@ -27,13 +27,17 @@ type Tunnel interface {
 	Resume() error
 	Status() TunnelStatus
 	CIDR() string
+	VirtualCIDR() string
+	SetVirtualCIDR(vCIDR string)
 }
 
-// BaseTunnel encapsula estado común de sincronización.
+// BaseTunnel encapsula estado común de sincronización y soporte NAT.
 type BaseTunnel struct {
-	mu     sync.RWMutex
-	cfg    *config.PrivateNetworkConfig
-	status TunnelStatus
+	mu          sync.RWMutex
+	cfg         *config.PrivateNetworkConfig
+	status      TunnelStatus
+	virtualCIDR string
+	nat         *NATTranslator
 }
 
 func (b *BaseTunnel) Status() TunnelStatus {
@@ -43,10 +47,31 @@ func (b *BaseTunnel) Status() TunnelStatus {
 }
 
 func (b *BaseTunnel) CIDR() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	if b.cfg == nil {
 		return ""
 	}
 	return b.cfg.CIDR
+}
+
+func (b *BaseTunnel) VirtualCIDR() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.virtualCIDR
+}
+
+func (b *BaseTunnel) SetVirtualCIDR(vCIDR string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.virtualCIDR = strings.TrimSpace(vCIDR)
+	if b.virtualCIDR != "" && b.cfg != nil && b.cfg.CIDR != "" {
+		if trans, err := NewNATTranslator(b.cfg.CIDR, b.virtualCIDR); err == nil {
+			b.nat = trans
+		}
+	} else {
+		b.nat = nil
+	}
 }
 
 func (b *BaseTunnel) SetStatus(s TunnelStatus) {

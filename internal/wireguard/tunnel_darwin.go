@@ -58,12 +58,17 @@ func (d *DarwinTunnel) Start() error {
 	addr := strings.Split(enrolled.AddressIPv4, "/")[0]
 	_ = exec.Command("ifconfig", ifName, addr, addr, "up").Run()
 
-	if d.cfg.CIDR != "" {
-		_ = exec.Command("route", "add", "-net", d.cfg.CIDR, "-interface", ifName).Run()
-		log.Printf("[WG:macOS] Ruta privada inyectada: %s vía %s\n", d.cfg.CIDR, ifName)
+	routeCIDR := d.cfg.CIDR
+	if d.virtualCIDR != "" {
+		routeCIDR = d.virtualCIDR
+	}
+	if routeCIDR != "" {
+		_ = exec.Command("route", "add", "-net", routeCIDR, "-interface", ifName).Run()
+		log.Printf("[WG:macOS] Ruta privada inyectada: %s vía %s\n", routeCIDR, ifName)
 	}
 
-	dev := device.NewDevice(tunDev, conn.NewDefaultBind(), device.NewLogger(device.LogLevelError, "[WG] "))
+	wrappedTun := WrapNATDevice(tunDev, d.nat)
+	dev := device.NewDevice(wrappedTun, conn.NewDefaultBind(), device.NewLogger(device.LogLevelError, "[WG] "))
 	d.dev = dev
 
 	privHex := toHexKey(enrolled.PrivateKey)
@@ -95,8 +100,12 @@ func (d *DarwinTunnel) Stop() error {
 		return nil
 	}
 
-	if d.cfg.CIDR != "" && d.ifName != "" {
-		_ = exec.Command("route", "delete", "-net", d.cfg.CIDR, "-interface", d.ifName).Run()
+	routeCIDR := d.cfg.CIDR
+	if d.virtualCIDR != "" {
+		routeCIDR = d.virtualCIDR
+	}
+	if routeCIDR != "" && d.ifName != "" {
+		_ = exec.Command("route", "delete", "-net", routeCIDR, "-interface", d.ifName).Run()
 	}
 	if d.dev != nil {
 		d.dev.Close()
@@ -119,8 +128,12 @@ func (d *DarwinTunnel) Pause() error {
 	if d.status != StatusConnected {
 		return nil
 	}
-	if d.cfg.CIDR != "" && d.ifName != "" {
-		_ = exec.Command("route", "delete", "-net", d.cfg.CIDR, "-interface", d.ifName).Run()
+	routeCIDR := d.cfg.CIDR
+	if d.virtualCIDR != "" {
+		routeCIDR = d.virtualCIDR
+	}
+	if routeCIDR != "" && d.ifName != "" {
+		_ = exec.Command("route", "delete", "-net", routeCIDR, "-interface", d.ifName).Run()
 	}
 	d.status = StatusPausedLocal
 	log.Printf("[WG:macOS] ⏸️ Red Privada pausada (Bypass automático para red local).\n")

@@ -88,28 +88,29 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 
 		// Red Privada WireGuard
 		if t.orch != nil {
-			pnStatus, pnCIDR, autoDet, pnEnabled := t.orch.GetPrivateNetworkInfo(acc.ID)
-			if pnCIDR == "" {
-				pnCIDR = "192.168.1.0/24"
-			}
-			pnFlag := uintptr(0x0000)
-			pnLabel := fmt.Sprintf("🌐 Red Privada (%s)", pnCIDR)
-			if pnEnabled {
-				pnFlag = 0x0008
-				if pnStatus == wireguard.StatusPausedLocal {
-					pnLabel = fmt.Sprintf("🌐 Red Privada (%s) [🏠 Pausa LAN]", pnCIDR)
-				} else {
-					pnLabel = fmt.Sprintf("🌐 Red Privada (%s) [🟢 Activa]", pnCIDR)
+			pnStatus, pnCIDR, virtCIDR, autoDet, pnEnabled := t.orch.GetPrivateNetworkInfo(acc.ID)
+			if pnCIDR != "" {
+				pnFlag := uintptr(0x0000)
+				pnLabel := fmt.Sprintf("🌐 Red Privada (%s)", pnCIDR)
+				if pnEnabled {
+					pnFlag = 0x0008
+					if pnStatus == wireguard.StatusPausedLocal {
+						pnLabel = fmt.Sprintf("🌐 Red Privada (%s) [🏠 Pausa LAN]", pnCIDR)
+					} else if virtCIDR != "" {
+						pnLabel = fmt.Sprintf("🌐 Red Privada (%s) [🔀 Virtual: %s]", pnCIDR, virtCIDR)
+					} else {
+						pnLabel = fmt.Sprintf("🌐 Red Privada (%s) [🟢 Activa]", pnCIDR)
+					}
 				}
-			}
-			appendStr(hSubMenu, pnFlag, accPnToggleID, pnLabel)
+				appendStr(hSubMenu, pnFlag, accPnToggleID, pnLabel)
 
-			if pnEnabled {
-				autoFlag := uintptr(0x0000)
-				if autoDet {
-					autoFlag = 0x0008
+				if pnEnabled {
+					autoFlag := uintptr(0x0000)
+					if autoDet {
+						autoFlag = 0x0008
+					}
+					appendStr(hSubMenu, autoFlag, accPnAutoID, "   ↪ 🔄 Auto-Bypass en Red Local")
 				}
-				appendStr(hSubMenu, autoFlag, accPnAutoID, "   ↪ 🔄 Auto-Bypass en Red Local")
 			}
 		}
 

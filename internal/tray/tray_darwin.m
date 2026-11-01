@@ -90,13 +90,15 @@ static NSMenuItem* makeItem(NSString *title, SEL action, id target, NSInteger ta
         [sub addItem:makeItem(sLabel, @selector(actionToggleAccount:), self, i, enabled ? NSControlStateValueOn : NSControlStateValueOff)];
         [sub addItem:makeItem(@"🔄 Actualizar túneles", @selector(actionRefreshAccount:), self, i, NSControlStateValueOff)];
 
-        NSString *pnLabel = acc[@"pn_label"] ?: @"🌐 Red Privada";
-        BOOL pnEnabled = [acc[@"pn_enabled"] boolValue];
-        [sub addItem:makeItem(pnLabel, @selector(actionTogglePn:), self, i, pnEnabled ? NSControlStateValueOn : NSControlStateValueOff)];
+        if ([acc[@"pn_has_config"] boolValue]) {
+            NSString *pnLabel = acc[@"pn_label"] ?: @"🌐 Red Privada";
+            BOOL pnEnabled = [acc[@"pn_enabled"] boolValue];
+            [sub addItem:makeItem(pnLabel, @selector(actionTogglePn:), self, i, pnEnabled ? NSControlStateValueOn : NSControlStateValueOff)];
 
-        if ([acc[@"pn_show_auto"] boolValue]) {
-            BOOL autoDet = [acc[@"pn_auto_detect"] boolValue];
-            [sub addItem:makeItem(@"   ↪ 🔄 Auto-Bypass en Red Local", @selector(actionTogglePnAuto:), self, i, autoDet ? NSControlStateValueOn : NSControlStateValueOff)];
+            if ([acc[@"pn_show_auto"] boolValue]) {
+                BOOL autoDet = [acc[@"pn_auto_detect"] boolValue];
+                [sub addItem:makeItem(@"   ↪ 🔄 Auto-Bypass en Red Local", @selector(actionTogglePnAuto:), self, i, autoDet ? NSControlStateValueOn : NSControlStateValueOff)];
+            }
         }
 
         if (routes.count > 0) {

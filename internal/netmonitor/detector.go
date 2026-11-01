@@ -131,3 +131,41 @@ func (d *NetworkDetector) probeNetwork() bool {
 
 	return true
 }
+
+// HasLocalPhysicalSubnet comprueba si el equipo tiene una IP física asignada dentro del CIDR especificado.
+func HasLocalPhysicalSubnet(cidr string) bool {
+	_, targetNet, err := net.ParseCIDR(strings.TrimSpace(cidr))
+	if err != nil {
+		return false
+	}
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return false
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		name := strings.ToLower(iface.Name)
+		if strings.Contains(name, "wintun") || strings.Contains(name, "cloudflare") || strings.Contains(name, "utun") {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip != nil && !ip.IsLoopback() && ip.To4() != nil && targetNet.Contains(ip) {
+				return true
+			}
+		}
+	}
+	return false
+}

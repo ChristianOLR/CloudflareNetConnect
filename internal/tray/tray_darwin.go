@@ -79,6 +79,7 @@ func (t *TrayApp) refreshTrayState() {
 		Name         string   `json:"name"`
 		Enabled      bool     `json:"enabled"`
 		Routes       []string `json:"routes"`
+		PnHasConfig  bool     `json:"pn_has_config"`
 		PnEnabled    bool     `json:"pn_enabled"`
 		PnLabel      string   `json:"pn_label"`
 		PnAutoDetect bool     `json:"pn_auto_detect"`
@@ -98,27 +99,30 @@ func (t *TrayApp) refreshTrayState() {
 			rLabels = append(rLabels, fmt.Sprintf("🔌 %s → 127.0.0.1:%d", r.Hostname, r.LocalPort))
 		}
 
-		pnLabel := "🌐 Red Privada"
+		hasPn := false
+		pnLabel := ""
 		pnEnabled := false
 		pnAutoDetect := false
 		pnShowAuto := false
 
 		if t.orch != nil {
-			status, cidr, autoDet, en := t.orch.GetPrivateNetworkInfo(a.ID)
-			if cidr == "" {
-				cidr = "192.168.1.0/24"
-			}
-			pnEnabled = en
-			pnAutoDetect = autoDet
-			pnShowAuto = en
-			if en {
-				if status == wireguard.StatusPausedLocal {
-					pnLabel = fmt.Sprintf("🌐 Red Privada (%s) [🏠 Pausa LAN]", cidr)
+			status, cidr, virtCIDR, autoDet, en := t.orch.GetPrivateNetworkInfo(a.ID)
+			if cidr != "" {
+				hasPn = true
+				pnEnabled = en
+				pnAutoDetect = autoDet
+				pnShowAuto = en
+				if en {
+					if status == wireguard.StatusPausedLocal {
+						pnLabel = fmt.Sprintf("🌐 Red Privada (%s) [🏠 Pausa LAN]", cidr)
+					} else if virtCIDR != "" {
+						pnLabel = fmt.Sprintf("🌐 Red Privada (%s) [🔀 Virtual: %s]", cidr, virtCIDR)
+					} else {
+						pnLabel = fmt.Sprintf("🌐 Red Privada (%s) [🟢 Activa]", cidr)
+					}
 				} else {
-					pnLabel = fmt.Sprintf("🌐 Red Privada (%s) [🟢 Activa]", cidr)
+					pnLabel = fmt.Sprintf("🌐 Red Privada (%s)", cidr)
 				}
-			} else {
-				pnLabel = fmt.Sprintf("🌐 Red Privada (%s)", cidr)
 			}
 		}
 
@@ -126,6 +130,7 @@ func (t *TrayApp) refreshTrayState() {
 			Name:         a.Name,
 			Enabled:      a.Enabled,
 			Routes:       rLabels,
+			PnHasConfig:  hasPn,
 			PnEnabled:    pnEnabled,
 			PnLabel:      pnLabel,
 			PnAutoDetect: pnAutoDetect,
