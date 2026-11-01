@@ -6,6 +6,8 @@ import (
 	"sync"
 
 	"github.com/chgarcia79/cloudflarenetconnect/internal/config"
+	"github.com/chgarcia79/cloudflarenetconnect/internal/netmonitor"
+	"github.com/chgarcia79/cloudflarenetconnect/internal/wireguard"
 )
 
 // Orchestrator gestiona el ciclo de vida concurrente de las conexiones por cuenta.
@@ -13,6 +15,8 @@ type Orchestrator struct {
 	mu           sync.RWMutex
 	cfg          *config.AppConfig
 	cancels      map[string]context.CancelFunc
+	wgTunnels    map[string]wireguard.Tunnel
+	netDetectors map[string]*netmonitor.NetworkDetector
 	active       bool
 	globalCtx    context.Context
 	globalCancel context.CancelFunc
@@ -21,8 +25,10 @@ type Orchestrator struct {
 // NewOrchestrator instancia el orquestador multi-cuenta.
 func NewOrchestrator(cfg *config.AppConfig) *Orchestrator {
 	return &Orchestrator{
-		cfg:     cfg,
-		cancels: make(map[string]context.CancelFunc),
+		cfg:          cfg,
+		cancels:      make(map[string]context.CancelFunc),
+		wgTunnels:    make(map[string]wireguard.Tunnel),
+		netDetectors: make(map[string]*netmonitor.NetworkDetector),
 	}
 }
 
@@ -71,6 +77,7 @@ func (o *Orchestrator) Stop() error {
 		delete(o.cancels, id)
 	}
 
+	o.stopAllPrivateNetworksLocked()
 	o.active = false
 	log.Println("[ORCHESTRATOR] Todos los sockets cerrados.")
 	return nil
@@ -84,6 +91,7 @@ func (o *Orchestrator) SetMasterToggle(enabled bool) {
 	o.cfg.MasterToggle = enabled
 	if !enabled {
 		log.Println("[ORCHESTRATOR] Master Toggle -> OFF: Cerrando túneles activos.")
+		o.stopAllPrivateNetworksLocked()
 		for id, cancel := range o.cancels {
 			cancel()
 			delete(o.cancels, id)
@@ -104,6 +112,7 @@ func (o *Orchestrator) SetAccountEnabled(accountID string, enabled bool) {
 	defer o.mu.Unlock()
 
 	if !enabled {
+		o.stopPrivateNetworkLocked(accountID)
 		for _, acc := range o.cfg.Accounts {
 			if acc.ID == accountID {
 				if cancel, exists := o.cancels[acc.ID]; exists {
@@ -135,6 +144,7 @@ func (o *Orchestrator) ReloadAccount(acc config.AccountConfig) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
+	o.stopPrivateNetworkLocked(acc.ID)
 	if cancel, exists := o.cancels[acc.ID]; exists {
 		cancel()
 		delete(o.cancels, acc.ID)
@@ -149,6 +159,7 @@ func (o *Orchestrator) RemoveAccount(accountID string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
+	o.stopPrivateNetworkLocked(accountID)
 	if cancel, exists := o.cancels[accountID]; exists {
 		log.Printf("[ORCHESTRATOR] Desvinculando y cerrando cuenta: %s\n", accountID)
 		cancel()
@@ -164,6 +175,7 @@ func (o *Orchestrator) startAccountLocked(acc config.AccountConfig) {
 	ctx, cancel := context.WithCancel(o.globalCtx)
 	o.cancels[acc.ID] = cancel
 
+	o.startPrivateNetworkLocked(acc)
 	go o.runAccountWorker(ctx, acc)
 }
 

@@ -14,15 +14,28 @@ type TunnelRoute struct {
 	Enabled   bool   `json:"enabled"`
 }
 
+// PrivateNetworkConfig define la configuración para conexión L3 a una red privada de Cloudflare.
+type PrivateNetworkConfig struct {
+	Enabled      bool   `json:"enabled"`
+	AutoDetect   bool   `json:"auto_detect"`
+	CIDR         string `json:"cidr"`
+	LocalProbeIP string `json:"local_probe_ip,omitempty"`
+	DeviceID     string `json:"device_id,omitempty"`
+	PrivateKey   string `json:"private_key,omitempty"`
+	AddressIPv4  string `json:"address_ipv4,omitempty"`
+	AddressIPv6  string `json:"address_ipv6,omitempty"`
+}
+
 // AccountConfig contiene las credenciales y rutas por organización o dominio.
 type AccountConfig struct {
-	ID        string        `json:"id"`
-	Name      string        `json:"name"`
-	AccountID string        `json:"account_id"`
-	ZoneID    string        `json:"zone_id,omitempty"`
-	APIToken  string        `json:"api_token"`
-	Routes    []TunnelRoute `json:"routes"`
-	Enabled   bool          `json:"enabled"`
+	ID             string                `json:"id"`
+	Name           string                `json:"name"`
+	AccountID      string                `json:"account_id"`
+	ZoneID         string                `json:"zone_id,omitempty"`
+	APIToken       string                `json:"api_token"`
+	Routes         []TunnelRoute         `json:"routes"`
+	PrivateNetwork *PrivateNetworkConfig `json:"private_network,omitempty"`
+	Enabled        bool                  `json:"enabled"`
 }
 
 // AppConfig es la configuración global de CloudflareNetConnect.

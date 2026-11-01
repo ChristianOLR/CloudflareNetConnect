@@ -4,6 +4,8 @@
 
 extern void goOnToggleMaster(void);
 extern void goOnToggleAccount(int index);
+extern void goOnTogglePn(int index);
+extern void goOnTogglePnAuto(int index);
 extern void goOnRefreshAccount(int index);
 extern void goOnRemoveAccount(int index);
 extern void goOnLinkAccount(void);
@@ -18,10 +20,20 @@ extern void goOnQuit(void);
 
 static MacTrayHandler *g_trayHandler = nil;
 
+static NSMenuItem* makeItem(NSString *title, SEL action, id target, NSInteger tag, NSControlStateValue state) {
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title action:action keyEquivalent:@""];
+    [item setTarget:target];
+    [item setTag:tag];
+    [item setState:state];
+    return item;
+}
+
 @implementation MacTrayHandler
 
 - (void)actionToggleMaster:(id)sender { goOnToggleMaster(); }
 - (void)actionToggleAccount:(id)sender { goOnToggleAccount((int)[(NSMenuItem *)sender tag]); }
+- (void)actionTogglePn:(id)sender { goOnTogglePn((int)[(NSMenuItem *)sender tag]); }
+- (void)actionTogglePnAuto:(id)sender { goOnTogglePnAuto((int)[(NSMenuItem *)sender tag]); }
 - (void)actionRefreshAccount:(id)sender { goOnRefreshAccount((int)[(NSMenuItem *)sender tag]); }
 - (void)actionRemoveAccount:(id)sender { goOnRemoveAccount((int)[(NSMenuItem *)sender tag]); }
 - (void)actionLinkAccount:(id)sender { goOnLinkAccount(); }
@@ -42,148 +54,109 @@ static MacTrayHandler *g_trayHandler = nil;
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"CloudflareNetConnect"];
     [menu setAutoenablesItems:NO];
 
-    // 1. Cabecera informativa con semáforo
-    BOOL effectivelyActive = NO;
+    BOOL effActive = NO;
     if (masterActive) {
         for (NSDictionary *acc in accounts) {
-            if ([acc[@"enabled"] boolValue]) { effectivelyActive = YES; break; }
+            if ([acc[@"enabled"] boolValue]) { effActive = YES; break; }
         }
     }
 
     NSString *headerTitle = @"🔴 CloudflareNetConnect (Servicio Desactivado)";
-    if (effectivelyActive) {
+    if (effActive) {
         headerTitle = @"🟢 CloudflareNetConnect (Servicio Activo)";
-    } else if (masterActive && accounts.count == 0) {
-        headerTitle = @"🔴 CloudflareNetConnect (Sin dominios vinculados)";
     } else if (masterActive) {
-        headerTitle = @"🔴 CloudflareNetConnect (Sin dominios activos)";
+        headerTitle = (accounts.count == 0) ? @"🔴 CloudflareNetConnect (Sin dominios vinculados)" : @"🔴 CloudflareNetConnect (Sin dominios activos)";
     }
-    NSMenuItem *header = [[NSMenuItem alloc] initWithTitle:headerTitle action:nil keyEquivalent:@""];
+    NSMenuItem *header = makeItem(headerTitle, nil, nil, 0, NSControlStateValueOff);
     [header setEnabled:NO];
     [menu addItem:header];
     [menu addItem:[NSMenuItem separatorItem]];
 
-    // 2. Interruptor Maestro
-    NSString *masterTitle = masterActive ? @"⚡ Servicio de Túneles Activo (Clic para Desactivar)" : @"⚡ Activar Servicio de Túneles (Actualmente OFF)";
-    NSMenuItem *masterItem = [[NSMenuItem alloc] initWithTitle:masterTitle action:@selector(actionToggleMaster:) keyEquivalent:@""];
-    [masterItem setTarget:self];
-    [masterItem setState:masterActive ? NSControlStateValueOn : NSControlStateValueOff];
-    [menu addItem:masterItem];
+    NSString *mTitle = masterActive ? @"⚡ Servicio de Túneles Activo (Clic para Desactivar)" : @"⚡ Activar Servicio de Túneles (Actualmente OFF)";
+    [menu addItem:makeItem(mTitle, @selector(actionToggleMaster:), self, 0, masterActive ? NSControlStateValueOn : NSControlStateValueOff)];
     [menu addItem:[NSMenuItem separatorItem]];
 
-    // 3. Sección de Cuentas con Submenú idéntico a Windows
     for (int i = 0; i < (int)accounts.count; i++) {
         NSDictionary *acc = accounts[i];
         NSString *name = acc[@"name"] ?: @"Cuenta Cloudflare";
         BOOL enabled = [acc[@"enabled"] boolValue];
-        NSArray *routes = acc[@"routes"] ?: @[];
         BOOL isOnline = enabled && masterActive;
+        NSArray *routes = acc[@"routes"] ?: @[];
 
-        NSMenu *subMenu = [[NSMenu alloc] initWithTitle:name];
-        [subMenu setAutoenablesItems:NO];
+        NSMenu *sub = [[NSMenu alloc] initWithTitle:name];
+        [sub setAutoenablesItems:NO];
 
-        NSString *stateLabel = enabled ? @"Dominio Activo (Clic para Desactivar)" : @"Activar conexión de este dominio";
-        NSMenuItem *toggleItem = [[NSMenuItem alloc] initWithTitle:stateLabel action:@selector(actionToggleAccount:) keyEquivalent:@""];
-        [toggleItem setTarget:self];
-        [toggleItem setTag:i];
-        [toggleItem setState:enabled ? NSControlStateValueOn : NSControlStateValueOff];
-        [subMenu addItem:toggleItem];
+        NSString *sLabel = enabled ? @"Dominio Activo (Clic para Desactivar)" : @"Activar conexión de este dominio";
+        [sub addItem:makeItem(sLabel, @selector(actionToggleAccount:), self, i, enabled ? NSControlStateValueOn : NSControlStateValueOff)];
+        [sub addItem:makeItem(@"🔄 Actualizar túneles", @selector(actionRefreshAccount:), self, i, NSControlStateValueOff)];
 
-        NSMenuItem *refreshItem = [[NSMenuItem alloc] initWithTitle:@"🔄 Actualizar túneles" action:@selector(actionRefreshAccount:) keyEquivalent:@""];
-        [refreshItem setTarget:self];
-        [refreshItem setTag:i];
-        [subMenu addItem:refreshItem];
+        NSString *pnLabel = acc[@"pn_label"] ?: @"🌐 Red Privada";
+        BOOL pnEnabled = [acc[@"pn_enabled"] boolValue];
+        [sub addItem:makeItem(pnLabel, @selector(actionTogglePn:), self, i, pnEnabled ? NSControlStateValueOn : NSControlStateValueOff)];
 
-        if (routes.count > 0) {
-            [subMenu addItem:[NSMenuItem separatorItem]];
-            for (NSString *rLabel in routes) {
-                NSMenuItem *rItem = [[NSMenuItem alloc] initWithTitle:rLabel action:nil keyEquivalent:@""];
-                [rItem setEnabled:NO];
-                [subMenu addItem:rItem];
-            }
+        if ([acc[@"pn_show_auto"] boolValue]) {
+            BOOL autoDet = [acc[@"pn_auto_detect"] boolValue];
+            [sub addItem:makeItem(@"   ↪ 🔄 Auto-Bypass en Red Local", @selector(actionTogglePnAuto:), self, i, autoDet ? NSControlStateValueOn : NSControlStateValueOff)];
         }
 
-        [subMenu addItem:[NSMenuItem separatorItem]];
-        NSMenuItem *removeItem = [[NSMenuItem alloc] initWithTitle:@"🗑️ Desvincular cuenta" action:@selector(actionRemoveAccount:) keyEquivalent:@""];
-        [removeItem setTarget:self];
-        [removeItem setTag:i];
-        [subMenu addItem:removeItem];
+        if (routes.count > 0) {
+            [sub addItem:[NSMenuItem separatorItem]];
+            for (NSString *r in routes) {
+                NSMenuItem *rItem = makeItem(r, nil, nil, 0, NSControlStateValueOff);
+                [rItem setEnabled:NO];
+                [sub addItem:rItem];
+            }
+        }
+        [sub addItem:[NSMenuItem separatorItem]];
+        [sub addItem:makeItem(@"🗑️ Desvincular cuenta", @selector(actionRemoveAccount:), self, i, NSControlStateValueOff)];
 
-        NSString *accTitle = [NSString stringWithFormat:@"%@ %@", isOnline ? @"🟢" : @"🔴", name];
-        NSMenuItem *accParent = [[NSMenuItem alloc] initWithTitle:accTitle action:nil keyEquivalent:@""];
-        [accParent setSubmenu:subMenu];
-        [menu addItem:accParent];
+        NSMenuItem *parent = makeItem([NSString stringWithFormat:@"%@ %@", isOnline ? @"🟢" : @"🔴", name], nil, nil, 0, NSControlStateValueOff);
+        [parent setSubmenu:sub];
+        [menu addItem:parent];
     }
+    if (accounts.count > 0) [menu addItem:[NSMenuItem separatorItem]];
 
-    if (accounts.count > 0) {
-        [menu addItem:[NSMenuItem separatorItem]];
-    }
+    [menu addItem:makeItem(@"➕ Asociar nueva cuenta...", @selector(actionLinkAccount:), self, 0, NSControlStateValueOff)];
 
-    // 4. Asociar nueva cuenta
-    NSMenuItem *linkItem = [[NSMenuItem alloc] initWithTitle:@"➕ Asociar nueva cuenta..." action:@selector(actionLinkAccount:) keyEquivalent:@""];
-    [linkItem setTarget:self];
-    [menu addItem:linkItem];
-
-    // 5. Submenú Servicio del Sistema (Autoarranque) idéntico a Windows
     NSMenu *svcMenu = [[NSMenu alloc] initWithTitle:@"Servicio del Sistema"];
     [svcMenu setAutoenablesItems:NO];
     BOOL isSvcInstalled = (svcState != 0);
-
     NSString *autoText = isSvcInstalled ? @"Iniciar al encender el Mac (Gestionado por Servicio)" : @"Iniciar aplicación al encender el Mac";
-    NSMenuItem *autoItem = [[NSMenuItem alloc] initWithTitle:autoText action:@selector(actionToggleStartup:) keyEquivalent:@""];
-    [autoItem setTarget:self];
-    [autoItem setState:(isSvcInstalled || startupEnabled) ? NSControlStateValueOn : NSControlStateValueOff];
+    NSMenuItem *autoItem = makeItem(autoText, @selector(actionToggleStartup:), self, 0, (isSvcInstalled || startupEnabled) ? NSControlStateValueOn : NSControlStateValueOff);
     if (isSvcInstalled) [autoItem setEnabled:NO];
     [svcMenu addItem:autoItem];
     [svcMenu addItem:[NSMenuItem separatorItem]];
 
     if (svcState == 4) {
-        NSMenuItem *st = [[NSMenuItem alloc] initWithTitle:@"🟢 Servicio macOS: Activo (2º Plano)" action:nil keyEquivalent:@""];
+        NSMenuItem *st = makeItem(@"🟢 Servicio macOS: Activo (2º Plano)", nil, nil, 0, NSControlStateValueOff);
         [st setEnabled:NO];
         [svcMenu addItem:st];
         [svcMenu addItem:[NSMenuItem separatorItem]];
-        NSMenuItem *bStop = [[NSMenuItem alloc] initWithTitle:@"⏹️ Detener Servicio macOS" action:@selector(actionSvcStop:) keyEquivalent:@""];
-        [bStop setTarget:self];
-        [svcMenu addItem:bStop];
-        NSMenuItem *bUn = [[NSMenuItem alloc] initWithTitle:@"🗑️ Desinstalar Servicio macOS" action:@selector(actionSvcUninstall:) keyEquivalent:@""];
-        [bUn setTarget:self];
-        [svcMenu addItem:bUn];
+        [svcMenu addItem:makeItem(@"⏹️ Detener Servicio macOS", @selector(actionSvcStop:), self, 0, NSControlStateValueOff)];
+        [svcMenu addItem:makeItem(@"🗑️ Desinstalar Servicio macOS", @selector(actionSvcUninstall:), self, 0, NSControlStateValueOff)];
     } else if (svcState == 1) {
-        NSMenuItem *st = [[NSMenuItem alloc] initWithTitle:@"🔴 Servicio macOS: Detenido (Instalado)" action:nil keyEquivalent:@""];
+        NSMenuItem *st = makeItem(@"🔴 Servicio macOS: Detenido (Instalado)", nil, nil, 0, NSControlStateValueOff);
         [st setEnabled:NO];
         [svcMenu addItem:st];
         [svcMenu addItem:[NSMenuItem separatorItem]];
-        NSMenuItem *bStart = [[NSMenuItem alloc] initWithTitle:@"▶️ Iniciar Servicio macOS" action:@selector(actionSvcStart:) keyEquivalent:@""];
-        [bStart setTarget:self];
-        [svcMenu addItem:bStart];
-        NSMenuItem *bUn = [[NSMenuItem alloc] initWithTitle:@"🗑️ Desinstalar Servicio macOS" action:@selector(actionSvcUninstall:) keyEquivalent:@""];
-        [bUn setTarget:self];
-        [svcMenu addItem:bUn];
+        [svcMenu addItem:makeItem(@"▶️ Iniciar Servicio macOS", @selector(actionSvcStart:), self, 0, NSControlStateValueOff)];
+        [svcMenu addItem:makeItem(@"🗑️ Desinstalar Servicio macOS", @selector(actionSvcUninstall:), self, 0, NSControlStateValueOff)];
     } else {
-        NSMenuItem *st = [[NSMenuItem alloc] initWithTitle:@"🔴 Servicio macOS: No Instalado" action:nil keyEquivalent:@""];
+        NSMenuItem *st = makeItem(@"🔴 Servicio macOS: No Instalado", nil, nil, 0, NSControlStateValueOff);
         [st setEnabled:NO];
         [svcMenu addItem:st];
         [svcMenu addItem:[NSMenuItem separatorItem]];
-        NSMenuItem *bInst = [[NSMenuItem alloc] initWithTitle:@"➕ Instalar y Activar Servicio macOS (2º Plano)" action:@selector(actionSvcInstall:) keyEquivalent:@""];
-        [bInst setTarget:self];
-        [svcMenu addItem:bInst];
+        [svcMenu addItem:makeItem(@"➕ Instalar y Activar Servicio macOS (2º Plano)", @selector(actionSvcInstall:), self, 0, NSControlStateValueOff)];
     }
 
     NSString *svcDot = (svcState == 4 || startupEnabled) ? @"🟢" : @"🔴";
-    NSString *svcParentTitle = [NSString stringWithFormat:@"%@ ⚙️ Servicio del Sistema (Autoarranque)", svcDot];
-    NSMenuItem *svcParent = [[NSMenuItem alloc] initWithTitle:svcParentTitle action:nil keyEquivalent:@""];
+    NSMenuItem *svcParent = makeItem([NSString stringWithFormat:@"%@ ⚙️ Servicio del Sistema (Autoarranque)", svcDot], nil, nil, 0, NSControlStateValueOff);
     [svcParent setSubmenu:svcMenu];
     [menu addItem:svcParent];
 
-    // 6. Abrir carpeta de configuración y Salir
-    NSMenuItem *cfgItem = [[NSMenuItem alloc] initWithTitle:@"📂 Abrir Carpeta de Configuración..." action:@selector(actionOpenConfig:) keyEquivalent:@""];
-    [cfgItem setTarget:self];
-    [menu addItem:cfgItem];
+    [menu addItem:makeItem(@"📂 Abrir Carpeta de Configuración...", @selector(actionOpenConfig:), self, 0, NSControlStateValueOff)];
     [menu addItem:[NSMenuItem separatorItem]];
-
-    NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:@"❌ Salir" action:@selector(actionQuit:) keyEquivalent:@"q"];
-    [quitItem setTarget:self];
-    [menu addItem:quitItem];
+    [menu addItem:makeItem(@"❌ Salir", @selector(actionQuit:), self, 0, NSControlStateValueOff)];
 
     self.statusItem.menu = menu;
 }
@@ -211,10 +184,8 @@ void setMacMenu(const char* stateJson, const void* iconBytes, int iconLen) {
     @autoreleasepool {
         NSString *jsonStr = [NSString stringWithUTF8String:stateJson];
         NSData *jsonData = [jsonStr dataUsingEncoding:NSUTF8StringEncoding];
-        NSDictionary *state = @{};
-        if (jsonData) {
-            state = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:nil] ?: @{};
-        }
+        NSDictionary *state = jsonData ? [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:nil] : @{};
+        if (!state) state = @{};
         NSData *iconData = (iconBytes != NULL && iconLen > 0) ? [NSData dataWithBytes:iconBytes length:iconLen] : nil;
 
         dispatch_async(dispatch_get_main_queue(), ^{

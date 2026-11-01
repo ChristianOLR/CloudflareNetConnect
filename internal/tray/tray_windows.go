@@ -26,9 +26,11 @@ const (
 	idSvcStart      = 1012
 	idSvcStop       = 1013
 	idSvcUninstall  = 1014
-	idAccToggleBase  = 2000
-	idAccRemoveBase  = 3000
-	idAccRefreshBase = 4000
+	idAccToggleBase   = 2000
+	idAccRemoveBase   = 3000
+	idAccRefreshBase  = 4000
+	idAccPnToggleBase = 5000
+	idAccPnAutoBase   = 6000
 )
 
 type TrayApp struct {
