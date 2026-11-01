@@ -98,16 +98,16 @@ func (o *Orchestrator) SetMasterToggle(enabled bool) {
 	}
 }
 
-// SetAccountEnabled activa o desactiva una cuenta individual.
+// SetAccountEnabled activa o desactiva una cuenta o dominio individual.
 func (o *Orchestrator) SetAccountEnabled(accountID string, enabled bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
 	if !enabled {
 		for _, acc := range o.cfg.Accounts {
-			if acc.ID == accountID || acc.AccountID == accountID {
+			if acc.ID == accountID {
 				if cancel, exists := o.cancels[acc.ID]; exists {
-					log.Printf("[ORCHESTRATOR] Pausando cuenta: %s\n", acc.ID)
+					log.Printf("[ORCHESTRATOR] Pausando cuenta/dominio: %s (%s)\n", acc.Name, acc.ID)
 					cancel()
 					delete(o.cancels, acc.ID)
 				}
@@ -122,7 +122,7 @@ func (o *Orchestrator) SetAccountEnabled(accountID string, enabled bool) {
 
 	if o.active && o.cfg.MasterToggle {
 		for _, acc := range o.cfg.Accounts {
-			if acc.ID == accountID || acc.AccountID == accountID {
+			if acc.ID == accountID {
 				o.startAccountLocked(acc)
 				break
 			}

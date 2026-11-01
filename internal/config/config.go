@@ -14,11 +14,12 @@ type TunnelRoute struct {
 	Enabled   bool   `json:"enabled"`
 }
 
-// AccountConfig contiene las credenciales y rutas por organización.
+// AccountConfig contiene las credenciales y rutas por organización o dominio.
 type AccountConfig struct {
 	ID        string        `json:"id"`
 	Name      string        `json:"name"`
 	AccountID string        `json:"account_id"`
+	ZoneID    string        `json:"zone_id,omitempty"`
 	APIToken  string        `json:"api_token"`
 	Routes    []TunnelRoute `json:"routes"`
 	Enabled   bool          `json:"enabled"`

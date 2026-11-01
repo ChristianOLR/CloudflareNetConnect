@@ -33,9 +33,19 @@ func (c *Client) DiscoverRoutes(accountID, zoneID string) []config.TunnelRoute {
 	seen := make(map[string]bool)
 	usedPorts := make(map[int]bool)
 
+	var zoneDomain string
+	if zoneID != "" {
+		if z, err := c.GetZone(zoneID); err == nil && z != nil && z.Name != "" {
+			zoneDomain = strings.ToLower(strings.TrimSpace(z.Name))
+		}
+	}
+
 	addRoute := func(hostname string, port int, proto string) {
 		hostname = strings.TrimSpace(strings.ToLower(hostname))
 		if hostname == "" || port <= 0 || seen[hostname] {
+			return
+		}
+		if zoneDomain != "" && hostname != zoneDomain && !strings.HasSuffix(hostname, "."+zoneDomain) {
 			return
 		}
 		seen[hostname] = true
@@ -81,8 +91,7 @@ func (c *Client) DiscoverRoutes(accountID, zoneID string) []config.TunnelRoute {
 	zonesToScan := []string{}
 	if zoneID != "" {
 		zonesToScan = append(zonesToScan, zoneID)
-	}
-	if listBody, err := c.doGet("https://api.cloudflare.com/client/v4/zones?per_page=50"); err == nil {
+	} else if listBody, err := c.doGet("https://api.cloudflare.com/client/v4/zones?per_page=50"); err == nil {
 		var parsedZones apiResponse[[]Zone]
 		if json.Unmarshal(listBody, &parsedZones) == nil && parsedZones.Success {
 			for _, z := range parsedZones.Result {

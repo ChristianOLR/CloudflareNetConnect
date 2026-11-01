@@ -1,6 +1,7 @@
 package tray
 
 import (
+	"fmt"
 	"log"
 	"time"
 
@@ -47,9 +48,19 @@ func (t *TrayApp) StartAssociateFlow() {
 		var targetAcc config.AccountConfig
 		exists := false
 		for i, a := range t.cfg.Accounts {
-			if a.AccountID == accID || (a.Name == accName && accName != "") {
+			isMatch := false
+			if res.ZoneID != "" && a.ZoneID != "" {
+				isMatch = (a.ZoneID == res.ZoneID)
+			} else if a.Name == accName && accName != "" {
+				isMatch = true
+			} else if res.ZoneID == "" && a.ZoneID == "" && a.AccountID == accID {
+				isMatch = true
+			}
+
+			if isMatch {
 				t.cfg.Accounts[i].APIToken = res.Token
 				t.cfg.Accounts[i].Name = accName
+				t.cfg.Accounts[i].ZoneID = res.ZoneID
 				t.cfg.Accounts[i].Enabled = true
 				if len(discovered) > 0 {
 					t.cfg.Accounts[i].Routes = mergeRoutes(t.cfg.Accounts[i].Routes, discovered)
@@ -61,14 +72,24 @@ func (t *TrayApp) StartAssociateFlow() {
 		}
 
 		if !exists {
-			shortID := accID
+			shortID := res.ZoneID
+			if shortID == "" {
+				shortID = accID
+			}
 			if len(shortID) > 8 {
 				shortID = shortID[:8]
+			}
+			for _, a := range t.cfg.Accounts {
+				if a.ID == shortID {
+					shortID = fmt.Sprintf("%s-%d", shortID, len(t.cfg.Accounts))
+					break
+				}
 			}
 			targetAcc = config.AccountConfig{
 				ID:        shortID,
 				Name:      accName,
 				AccountID: accID,
+				ZoneID:    res.ZoneID,
 				APIToken:  res.Token,
 				Enabled:   true,
 				Routes:    discovered,
@@ -111,7 +132,7 @@ func (t *TrayApp) RefreshAccountTunnels(index int) {
 
 	log.Printf("[TUNNEL-SYNC] 🔄 Actualizando túneles desde Cloudflare para '%s'...\n", acc.Name)
 	client := cloudflare.NewClient(acc.APIToken)
-	discovered := client.DiscoverRoutes(acc.AccountID, "")
+	discovered := client.DiscoverRoutes(acc.AccountID, acc.ZoneID)
 
 	t.mu.Lock()
 	if index < len(t.cfg.Accounts) {
@@ -141,49 +162,4 @@ func (t *TrayApp) AutoSyncMissingRoutes() {
 			t.RefreshAccountTunnels(i)
 		}
 	}
-}
-
-func mergeRoutes(existing, discovered []config.TunnelRoute) []config.TunnelRoute {
-	if len(existing) == 0 {
-		return ensureUniquePorts(discovered)
-	}
-	if len(discovered) == 0 {
-		return ensureUniquePorts(existing)
-	}
-	byHost := make(map[string]config.TunnelRoute)
-	for _, r := range existing {
-		byHost[r.Hostname] = r
-	}
-	var merged []config.TunnelRoute
-	seen := make(map[string]bool)
-	for _, d := range discovered {
-		if ex, ok := byHost[d.Hostname]; ok {
-			d.Enabled = ex.Enabled
-			if ex.LocalPort > 0 {
-				d.LocalPort = ex.LocalPort
-			}
-		}
-		merged = append(merged, d)
-		seen[d.Hostname] = true
-	}
-	for _, r := range existing {
-		if !seen[r.Hostname] {
-			merged = append(merged, r)
-		}
-	}
-	return ensureUniquePorts(merged)
-}
-
-func ensureUniquePorts(routes []config.TunnelRoute) []config.TunnelRoute {
-	used := make(map[int]bool)
-	for i := range routes {
-		if routes[i].LocalPort <= 0 {
-			continue
-		}
-		for used[routes[i].LocalPort] {
-			routes[i].LocalPort++
-		}
-		used[routes[i].LocalPort] = true
-	}
-	return routes
 }
