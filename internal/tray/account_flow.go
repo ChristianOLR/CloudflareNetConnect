@@ -128,6 +128,16 @@ func (t *TrayApp) ensurePrivateNetworkConfig(acc *config.AccountConfig, pnCIDR, 
 		acc.PrivateNetwork.DeviceID = ""
 		if enrolled, err := wireguard.EnsureEnrolled(acc.PrivateNetwork); err == nil && enrolled != nil {
 			log.Printf("[AUTH-FLOW] 🛡️ Red privada aprovisionada en Zero Trust (Org: %s, IP: %s)\n", teamName, enrolled.AddressIPv4)
+		} else if acc.PrivateNetwork.ZeroTrustToken == "" && acc.PrivateNetwork.ServiceTokenID == "" && teamName != "" {
+			WatchForZeroTrustToken(teamName, func(token string) {
+				t.mu.Lock()
+				acc.PrivateNetwork.ZeroTrustToken = token
+				acc.PrivateNetwork.DeviceID = ""
+				acc.PrivateNetwork.Token = ""
+				_, _ = wireguard.EnsureEnrolled(acc.PrivateNetwork)
+				_ = config.SaveConfig(t.configPath, t.cfg)
+				t.mu.Unlock()
+			})
 		}
 	}
 }

@@ -31,3 +31,27 @@ func CopyToClipboard(text string) {
 		u32.NewProc("SetClipboardData").Call(13, hMem)
 	}
 }
+
+// ReadClipboardText lee texto en formato UTF-16 del portapapeles.
+func ReadClipboardText() string {
+	u32 := windows.NewLazySystemDLL("user32.dll")
+	k32 := windows.NewLazySystemDLL("kernel32.dll")
+	r, _, _ := u32.NewProc("OpenClipboard").Call(0)
+	if r == 0 {
+		return ""
+	}
+	defer u32.NewProc("CloseClipboard").Call()
+
+	hData, _, _ := u32.NewProc("GetClipboardData").Call(13) // CF_UNICODETEXT
+	if hData == 0 {
+		return ""
+	}
+
+	ptr, _, _ := k32.NewProc("GlobalLock").Call(hData)
+	if ptr == 0 {
+		return ""
+	}
+	defer k32.NewProc("GlobalUnlock").Call(hData)
+
+	return windows.UTF16PtrToString((*uint16)(unsafe.Pointer(ptr)))
+}

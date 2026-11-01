@@ -96,7 +96,12 @@ func EnsureEnrolled(pn *config.PrivateNetworkConfig) (*EnrollmentResult, error) 
 		req.Header.Set("CF-Access-Client-Secret", pn.ServiceTokenSecret)
 	}
 	if pn.ZeroTrustToken != "" {
-		req.Header.Set("Cf-Access-Token", pn.ZeroTrustToken)
+		jwt := ExtractZeroTrustToken(pn.ZeroTrustToken)
+		if jwt != "" {
+			req.Header.Set("Cf-Access-Jwt-Assertion", jwt)
+			req.Header.Set("Cf-Access-Token", jwt)
+			req.Header.Set("Authorization", "Bearer "+jwt)
+		}
 	}
 
 	client := &http.Client{Timeout: 15 * time.Second}

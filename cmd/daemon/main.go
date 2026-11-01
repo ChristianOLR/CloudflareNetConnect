@@ -31,6 +31,12 @@ func main() {
 	serviceAction := flag.String("service", "", "Acción: install, uninstall, start, stop, restart, status")
 	flag.Parse()
 
+	for _, arg := range os.Args[1:] {
+		if tray.HandleIncomingWarpToken(arg, *configPath) {
+			return
+		}
+	}
+
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
 		log.Fatalf("[FATAL] Error cargando configuración: %v", err)

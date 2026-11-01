@@ -35,7 +35,17 @@ func (t *TrayApp) handleMenuCommand(cmd uintptr, maps menuCommandMaps) {
 			}
 			if acc.PrivateNetwork.Token == "" || acc.PrivateNetwork.DeviceID == "" {
 				acc.PrivateNetwork.DeviceID = ""
-				_, _ = wireguard.EnsureEnrolled(acc.PrivateNetwork)
+				if _, err := wireguard.EnsureEnrolled(acc.PrivateNetwork); err != nil && acc.PrivateNetwork.ZeroTrustToken == "" && acc.PrivateNetwork.TeamName != "" {
+					WatchForZeroTrustToken(acc.PrivateNetwork.TeamName, func(ztToken string) {
+						t.mu.Lock()
+						acc.PrivateNetwork.ZeroTrustToken = ztToken
+						acc.PrivateNetwork.DeviceID = ""
+						acc.PrivateNetwork.Token = ""
+						_, _ = wireguard.EnsureEnrolled(acc.PrivateNetwork)
+						_ = config.SaveConfig(t.configPath, t.cfg)
+						t.mu.Unlock()
+					})
+				}
 			}
 		}
 		t.mu.Unlock()
