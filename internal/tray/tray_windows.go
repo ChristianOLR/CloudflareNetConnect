@@ -46,7 +46,13 @@ type TrayApp struct {
 }
 
 func NewTrayApp(orch *tunnel.Orchestrator, cfg *config.AppConfig, configPath string) *TrayApp {
-	return &TrayApp{orch: orch, cfg: cfg, configPath: configPath}
+	app := &TrayApp{orch: orch, cfg: cfg, configPath: configPath}
+	if orch != nil {
+		orch.SetOnStateChange(func() {
+			app.refreshTrayState()
+		})
+	}
+	return app
 }
 
 func (t *TrayApp) Run() {

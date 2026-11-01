@@ -38,6 +38,11 @@ type TrayApp struct {
 
 func NewTrayApp(orch *tunnel.Orchestrator, cfg *config.AppConfig, configPath string) *TrayApp {
 	app := &TrayApp{orch: orch, cfg: cfg, configPath: configPath}
+	if orch != nil {
+		orch.SetOnStateChange(func() {
+			app.refreshTrayState()
+		})
+	}
 	g_darwinTray = app
 	return app
 }

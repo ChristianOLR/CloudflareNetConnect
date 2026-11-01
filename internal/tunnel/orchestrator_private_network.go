@@ -1,7 +1,6 @@
 package tunnel
 
 import (
-	"fmt"
 	"log"
 
 	"github.com/chgarcia79/cloudflarenetconnect/internal/config"
@@ -30,12 +29,9 @@ func (o *Orchestrator) startPrivateNetworkLocked(acc config.AccountConfig) {
 		detector, detExists := o.netDetectors[acc.ID]
 		if !detExists {
 			probeIP := acc.PrivateNetwork.LocalProbeIP
+			accID := acc.ID
 			detector = netmonitor.NewDetector(acc.PrivateNetwork.CIDR, probeIP, func(inLocal bool) {
-				if inLocal {
-					_ = tun.Pause()
-				} else {
-					_ = tun.Resume()
-				}
+				o.reconcilePrivateNetwork(accID, inLocal)
 			})
 			o.netDetectors[acc.ID] = detector
 			detector.StartWatcher()
@@ -51,42 +47,6 @@ func (o *Orchestrator) startPrivateNetworkLocked(acc config.AccountConfig) {
 	if err := tun.Start(); err != nil {
 		log.Printf("[ORCH-WG-ERR:%s] Error iniciando red privada: %v\n", acc.ID, err)
 	}
-}
-
-func (o *Orchestrator) resolveVirtualCIDR(accountID, targetCIDR string) string {
-	hasLocalConflict := netmonitor.HasLocalPhysicalSubnet(targetCIDR)
-	hasRemoteConflict := false
-
-	for id, otherTun := range o.wgTunnels {
-		if id != accountID && otherTun.Status() != wireguard.StatusDisconnected {
-			if otherTun.CIDR() == targetCIDR || otherTun.VirtualCIDR() == targetCIDR {
-				hasRemoteConflict = true
-				break
-			}
-		}
-	}
-
-	if !hasLocalConflict && !hasRemoteConflict {
-		return ""
-	}
-
-	for i := 1; i <= 254; i++ {
-		candidate := fmt.Sprintf("10.200.%d.0/24", i)
-		inUse := netmonitor.HasLocalPhysicalSubnet(candidate)
-		if inUse {
-			continue
-		}
-		for _, t := range o.wgTunnels {
-			if t.VirtualCIDR() == candidate {
-				inUse = true
-				break
-			}
-		}
-		if !inUse {
-			return candidate
-		}
-	}
-	return "10.200.1.0/24"
 }
 
 func (o *Orchestrator) stopPrivateNetworkLocked(accountID string) {

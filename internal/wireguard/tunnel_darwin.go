@@ -73,10 +73,7 @@ func (d *DarwinTunnel) Start() error {
 
 	privHex := toHexKey(enrolled.PrivateKey)
 	peerHex := toHexKey(enrolled.PeerPubKey)
-	peerEndpoint := enrolled.PeerEndpoint
-	if peerEndpoint == "" {
-		peerEndpoint = cfDefaultPeer
-	}
+	peerEndpoint := resolvePeerEndpoint(enrolled.PeerEndpoint)
 
 	ipcConfig := fmt.Sprintf("private_key=%s\npublic_key=%s\nendpoint=%s\nallowed_ip=0.0.0.0/0\npersistent_keepalive_interval=25\n",
 		privHex, peerHex, peerEndpoint)

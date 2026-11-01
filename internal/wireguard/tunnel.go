@@ -3,6 +3,7 @@ package wireguard
 import (
 	"encoding/base64"
 	"encoding/hex"
+	"net"
 	"strings"
 	"sync"
 
@@ -86,4 +87,16 @@ func toHexKey(b64Key string) string {
 		return ""
 	}
 	return hex.EncodeToString(b)
+}
+
+func resolvePeerEndpoint(endpoint string) string {
+	ep := strings.TrimSpace(endpoint)
+	if ep == "" {
+		ep = cfDefaultPeer
+	}
+	addr, err := net.ResolveUDPAddr("udp", ep)
+	if err == nil && addr != nil {
+		return addr.String()
+	}
+	return "162.159.192.1:2408"
 }

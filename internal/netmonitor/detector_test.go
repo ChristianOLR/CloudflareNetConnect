@@ -17,9 +17,15 @@ func TestDetectorInitialization(t *testing.T) {
 	}
 
 	d.CheckNow()
-	// Allow any asynchronous callback execution
 	time.Sleep(10 * time.Millisecond)
 
 	d.StartWatcher()
 	d.StopWatcher()
+}
+
+func TestHasLocalPhysicalSubnet(t *testing.T) {
+	// Comprobar que no entra en pánico con CIDR válido o inválido
+	_ = HasLocalPhysicalSubnet("127.0.0.0/8")
+	_ = HasLocalPhysicalSubnet("invalid-cidr")
+	_ = HasLocalPhysicalSubnet("")
 }

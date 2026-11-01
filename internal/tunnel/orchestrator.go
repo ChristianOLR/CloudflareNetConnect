@@ -14,10 +14,11 @@ import (
 type Orchestrator struct {
 	mu           sync.RWMutex
 	cfg          *config.AppConfig
-	cancels      map[string]context.CancelFunc
-	wgTunnels    map[string]wireguard.Tunnel
-	netDetectors map[string]*netmonitor.NetworkDetector
-	active       bool
+	cancels       map[string]context.CancelFunc
+	wgTunnels     map[string]wireguard.Tunnel
+	netDetectors  map[string]*netmonitor.NetworkDetector
+	onStateChange func()
+	active        bool
 	globalCtx    context.Context
 	globalCancel context.CancelFunc
 }
