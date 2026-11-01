@@ -15,6 +15,9 @@ import (
 
 type SplashWindow struct {
 	authURL      string
+	title        string
+	hint1        string
+	hint2        string
 	hWnd         windows.Handle
 	hLogoIcon    windows.Handle
 	mu           sync.Mutex
@@ -27,21 +30,32 @@ type SplashWindow struct {
 }
 
 func NewSplashWindow(authURL string) *SplashWindow {
+	return NewCustomSplashWindow(authURL, "Vincular Cuenta Cloudflare", "1. Abre o pega el enlace en tu navegador", "2. Selecciona el dominio y pulsa «Authorize»")
+}
+
+func NewCustomSplashWindow(authURL, title, hint1, hint2 string) *SplashWindow {
 	return &SplashWindow{
-		authURL:    authURL,
-		done:       make(chan struct{}),
-		statusText: "Esperando identificación...",
+		authURL: authURL, title: title, hint1: hint1, hint2: hint2,
+		done: make(chan struct{}), statusText: "Esperando identificación...",
 	}
+}
+
+func (s *SplashWindow) Done() <-chan struct{} {
+	return s.done
 }
 
 func (s *SplashWindow) Show() {
 	go s.runNativeFrameless()
 }
 
-func (s *SplashWindow) SetSuccess(accName string) {
+func (s *SplashWindow) SetSuccess(name string) {
 	s.mu.Lock()
 	s.successState = true
-	s.statusText = "✅ ¡Cuenta " + accName + " vinculada!"
+	if name == "Zero Trust" {
+		s.statusText = "✅ ¡Red Privada Zero Trust vinculada!"
+	} else {
+		s.statusText = "✅ ¡Cuenta " + name + " vinculada!"
+	}
 	h := s.hWnd
 	s.mu.Unlock()
 	if h != 0 {

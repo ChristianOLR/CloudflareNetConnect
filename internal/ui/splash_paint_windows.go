@@ -76,6 +76,9 @@ func (s *SplashWindow) paintCard(hWnd windows.Handle) {
 	copied := s.copiedState
 	statusTxt := s.statusText
 	isSuccess := s.successState
+	title := s.title
+	hint1 := s.hint1
+	hint2 := s.hint2
 	s.mu.Unlock()
 
 	ringColors := []uintptr{0x002081F4, 0x003FADFA, 0x001A559E}
@@ -138,9 +141,18 @@ func (s *SplashWindow) paintCard(hWnd windows.Handle) {
 		pDrawTextW.Call(memDC, uintptr(unsafe.Pointer(u16)), ^uintptr(0), uintptr(unsafe.Pointer(&rc)), 0x01|0x04|0x20)
 	}
 
-	drawCentered(fTitle, 0x00FFFFFF, 138, 162, "Vincular Cuenta Cloudflare")
-	drawCentered(fHint, 0x00C8B8A8, 164, 182, "1. Abre o pega el enlace en tu navegador")
-	drawCentered(fHint, 0x00C8B8A8, 180, 198, "2. Selecciona el dominio y pulsa «Authorize»")
+	if title == "" {
+		title = "Vincular Cuenta Cloudflare"
+	}
+	if hint1 == "" {
+		hint1 = "1. Abre o pega el enlace en tu navegador"
+	}
+	if hint2 == "" {
+		hint2 = "2. Selecciona el dominio y pulsa «Authorize»"
+	}
+	drawCentered(fTitle, 0x00FFFFFF, 138, 162, title)
+	drawCentered(fHint, 0x00C8B8A8, 164, 182, hint1)
+	drawCentered(fHint, 0x00C8B8A8, 180, 198, hint2)
 
 	statusColor := uintptr(0x0074BAFD)
 	if isSuccess {

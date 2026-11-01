@@ -17,9 +17,38 @@ type menuCommandMaps struct {
 	refreshMap  map[uintptr]int
 	pnToggleMap map[uintptr]int
 	pnAutoMap   map[uintptr]int
+	pnAuthMap   map[uintptr]int
 }
 
 func (t *TrayApp) handleMenuCommand(cmd uintptr, maps menuCommandMaps) {
+	if idx, ok := maps.pnAuthMap[cmd]; ok {
+		t.mu.Lock()
+		acc := &t.cfg.Accounts[idx]
+		if acc.PrivateNetwork != nil {
+			if acc.PrivateNetwork.TeamName == "" {
+				client := cloudflare.NewClient(acc.APIToken)
+				acc.PrivateNetwork.TeamName = client.DiscoverTeamName(acc.AccountID, acc.Name, acc.ZoneID)
+			}
+			teamName := acc.PrivateNetwork.TeamName
+			t.mu.Unlock()
+			WatchForZeroTrustToken(teamName, func(ztToken string) {
+				t.mu.Lock()
+				acc.PrivateNetwork.ZeroTrustToken = ztToken
+				acc.PrivateNetwork.DeviceID = ""
+				acc.PrivateNetwork.Token = ""
+				_, _ = wireguard.EnsureEnrolled(acc.PrivateNetwork)
+				_ = config.SaveConfig(t.configPath, t.cfg)
+				t.mu.Unlock()
+				if t.orch != nil {
+					t.orch.ReloadAccount(*acc)
+				}
+				t.refreshTrayState()
+			})
+			return
+		}
+		t.mu.Unlock()
+		return
+	}
 	if idx, ok := maps.refreshMap[cmd]; ok {
 		go t.RefreshAccountTunnels(idx)
 		return

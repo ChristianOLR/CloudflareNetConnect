@@ -31,6 +31,7 @@ const (
 	idAccRefreshBase  = 4000
 	idAccPnToggleBase = 5000
 	idAccPnAutoBase   = 6000
+	idAccPnAuthBase   = 7000
 )
 
 type TrayApp struct {

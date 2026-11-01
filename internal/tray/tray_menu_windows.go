@@ -59,6 +59,7 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 		refreshMap:  make(map[uintptr]int),
 		pnToggleMap: make(map[uintptr]int),
 		pnAutoMap:   make(map[uintptr]int),
+		pnAuthMap:   make(map[uintptr]int),
 	}
 	posIndex := uintptr(4)
 	for i, acc := range t.cfg.Accounts {
@@ -70,12 +71,14 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 		accRefreshID := uintptr(idAccRefreshBase + i)
 		accPnToggleID := uintptr(idAccPnToggleBase + i)
 		accPnAutoID := uintptr(idAccPnAutoBase + i)
+		accPnAuthID := uintptr(idAccPnAuthBase + i)
 
 		maps.toggleMap[accToggleID] = i
 		maps.removeMap[accRemoveID] = i
 		maps.refreshMap[accRefreshID] = i
 		maps.pnToggleMap[accPnToggleID] = i
 		maps.pnAutoMap[accPnAutoID] = i
+		maps.pnAuthMap[accPnAuthID] = i
 
 		flag := uintptr(0x0000)
 		stateLabel := "Activar conexión de este dominio"
@@ -111,6 +114,12 @@ func (t *TrayApp) showMenu(hWnd windows.Handle) {
 					}
 					appendStr(hSubMenu, autoFlag, accPnAutoID, "   ↪ 🔄 Auto-Bypass en Red Local")
 				}
+
+				authLabel := "   ↪ 🛡️ Vincular Zero Trust (Copiar enlace)..."
+				if acc.PrivateNetwork != nil && acc.PrivateNetwork.ZeroTrustToken != "" {
+					authLabel = "   ↪ 🛡️ Re-vincular Zero Trust..."
+				}
+				appendStr(hSubMenu, 0x0000, accPnAuthID, authLabel)
 			}
 		}
 
