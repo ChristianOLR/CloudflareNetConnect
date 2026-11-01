@@ -8,10 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
-	"golang.org/x/crypto/curve25519"
 	"github.com/chgarcia79/cloudflarenetconnect/internal/config"
+	"golang.org/x/crypto/curve25519"
 )
 
 const (
@@ -21,12 +22,13 @@ const (
 )
 
 type EnrollmentResult struct {
-	DeviceID    string
-	PrivateKey  string
-	PublicKey   string
-	AddressIPv4 string
-	AddressIPv6 string
-	PeerPubKey  string
+	DeviceID     string
+	Token        string
+	PrivateKey   string
+	PublicKey    string
+	AddressIPv4  string
+	AddressIPv6  string
+	PeerPubKey   string
 	PeerEndpoint string
 }
 
@@ -55,6 +57,7 @@ func EnsureEnrolled(pn *config.PrivateNetworkConfig) (*EnrollmentResult, error) 
 	if pn.DeviceID != "" && pn.PrivateKey != "" && pn.AddressIPv4 != "" {
 		return &EnrollmentResult{
 			DeviceID:     pn.DeviceID,
+			Token:        pn.Token,
 			PrivateKey:   pn.PrivateKey,
 			AddressIPv4:  pn.AddressIPv4,
 			AddressIPv6:  pn.AddressIPv6,
@@ -77,14 +80,24 @@ func EnsureEnrolled(pn *config.PrivateNetworkConfig) (*EnrollmentResult, error) 
 		"serial_number": "",
 		"locale":        "es_ES",
 	}
-	body, _ := json.Marshal(payload)
+	if pn.TeamName != "" {
+		payload["organization"] = strings.TrimSpace(pn.TeamName)
+	}
 
+	body, _ := json.Marshal(payload)
 	req, err := http.NewRequest(http.MethodPost, cfRegEndpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "okhttp/3.12.1")
+	if pn.ServiceTokenID != "" && pn.ServiceTokenSecret != "" {
+		req.Header.Set("CF-Access-Client-Id", pn.ServiceTokenID)
+		req.Header.Set("CF-Access-Client-Secret", pn.ServiceTokenSecret)
+	}
+	if pn.ZeroTrustToken != "" {
+		req.Header.Set("Cf-Access-Token", pn.ZeroTrustToken)
+	}
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
@@ -100,6 +113,7 @@ func EnsureEnrolled(pn *config.PrivateNetworkConfig) (*EnrollmentResult, error) 
 
 	var parsed struct {
 		ID     string `json:"id"`
+		Token  string `json:"token"`
 		Config struct {
 			Interface struct {
 				Addresses struct {
@@ -113,8 +127,11 @@ func EnsureEnrolled(pn *config.PrivateNetworkConfig) (*EnrollmentResult, error) 
 		return nil, fmt.Errorf("error parseando respuesta de enrolamiento: %w", err)
 	}
 
+	activateWARP(client, parsed.ID, parsed.Token)
+
 	res := &EnrollmentResult{
 		DeviceID:     parsed.ID,
+		Token:        parsed.Token,
 		PrivateKey:   privKey,
 		PublicKey:    pubKey,
 		AddressIPv4:  parsed.Config.Interface.Addresses.V4,
@@ -124,8 +141,27 @@ func EnsureEnrolled(pn *config.PrivateNetworkConfig) (*EnrollmentResult, error) 
 	}
 
 	pn.DeviceID = res.DeviceID
+	pn.Token = res.Token
 	pn.PrivateKey = res.PrivateKey
 	pn.AddressIPv4 = res.AddressIPv4
 	pn.AddressIPv6 = res.AddressIPv6
 	return res, nil
+}
+
+func activateWARP(client *http.Client, deviceID, token string) {
+	if deviceID == "" || token == "" {
+		return
+	}
+	url := fmt.Sprintf("%s/%s", cfRegEndpoint, deviceID)
+	req, err := http.NewRequest(http.MethodPatch, url, bytes.NewReader([]byte(`{"warp_enabled":true}`)))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "okhttp/3.12.1")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := client.Do(req)
+	if err == nil {
+		_ = resp.Body.Close()
+	}
 }

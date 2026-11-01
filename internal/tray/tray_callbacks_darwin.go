@@ -13,7 +13,9 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/chgarcia79/cloudflarenetconnect/internal/cloudflare"
 	"github.com/chgarcia79/cloudflarenetconnect/internal/config"
+	"github.com/chgarcia79/cloudflarenetconnect/internal/wireguard"
 )
 
 //export goOnToggleMaster
@@ -62,11 +64,23 @@ func goOnTogglePn(index int) {
 	}
 	g_darwinTray.mu.Lock()
 	if index >= 0 && index < len(g_darwinTray.cfg.Accounts) {
-		accID := g_darwinTray.cfg.Accounts[index].ID
+		acc := &g_darwinTray.cfg.Accounts[index]
+		accID := acc.ID
+		if acc.PrivateNetwork != nil {
+			if acc.PrivateNetwork.TeamName == "" {
+				client := cloudflare.NewClient(acc.APIToken)
+				acc.PrivateNetwork.TeamName = client.DiscoverTeamName(acc.AccountID, acc.Name, acc.ZoneID)
+			}
+			if acc.PrivateNetwork.Token == "" || acc.PrivateNetwork.DeviceID == "" {
+				acc.PrivateNetwork.DeviceID = ""
+				_, _ = wireguard.EnsureEnrolled(acc.PrivateNetwork)
+			}
+		}
 		g_darwinTray.mu.Unlock()
 
 		if g_darwinTray.orch != nil {
 			g_darwinTray.orch.TogglePrivateNetwork(accID)
+			_ = config.SaveConfig(g_darwinTray.configPath, g_darwinTray.cfg)
 		}
 		g_darwinTray.refreshTrayState()
 	} else {

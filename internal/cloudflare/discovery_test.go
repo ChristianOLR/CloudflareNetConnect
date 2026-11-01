@@ -50,3 +50,16 @@ func TestParseTeamnetRoutes(t *testing.T) {
 		t.Errorf("expected 1 active route, got %d", activeCount)
 	}
 }
+
+func TestDiscoverTeamName(t *testing.T) {
+	client := NewClient("dummy")
+	team := client.DiscoverTeamName("", "Hispaserver (hispaserver.net)", "hispaserver.net")
+	if team != "hispaserver" {
+		t.Errorf("expected 'hispaserver', got '%s'", team)
+	}
+
+	team2 := client.DiscoverTeamName("", "OLR (olrcloud.com)", "olrcloud.com")
+	if team2 != "olrcloud" {
+		t.Errorf("expected 'olrcloud', got '%s'", team2)
+	}
+}

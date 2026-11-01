@@ -45,6 +45,45 @@ func (c *Client) ListTeamnetRoutes(accountID string) ([]TeamnetRoute, error) {
 	return active, nil
 }
 
+// AccessOrgResponse representa la respuesta de la organización en Cloudflare Access.
+type AccessOrgResponse struct {
+	Name       string `json:"name"`
+	AuthDomain string `json:"auth_domain"`
+}
+
+// DiscoverTeamName intenta obtener el nombre de equipo de Zero Trust para la cuenta.
+func (c *Client) DiscoverTeamName(accountID, accountName, zoneName string) string {
+	if accountID != "" {
+		url := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%s/access/organizations", accountID)
+		if body, err := c.doGet(url); err == nil {
+			var parsed apiResponse[AccessOrgResponse]
+			if err := json.Unmarshal(body, &parsed); err == nil && parsed.Success && parsed.Result.AuthDomain != "" {
+				parts := strings.Split(parsed.Result.AuthDomain, ".")
+				if len(parts) > 0 && parts[0] != "" {
+					return parts[0]
+				}
+			}
+		}
+	}
+	if idxStart := strings.Index(accountName, "("); idxStart != -1 {
+		if idxEnd := strings.Index(accountName[idxStart:], ")"); idxEnd != -1 {
+			domain := accountName[idxStart+1 : idxStart+idxEnd]
+			parts := strings.Split(domain, ".")
+			if len(parts) > 0 && parts[0] != "" {
+				return strings.ToLower(strings.TrimSpace(parts[0]))
+			}
+		}
+	}
+	base := strings.ToLower(strings.TrimSpace(accountName))
+	if idx := strings.Index(base, " "); idx != -1 {
+		base = base[:idx]
+	}
+	if idx := strings.Index(base, "."); idx != -1 {
+		base = base[:idx]
+	}
+	return strings.Trim(base, "()[] \t")
+}
+
 // DiscoverPrivateCIDR busca dinámicamente el CIDR de red privada configurado en Zero Trust.
 func (c *Client) DiscoverPrivateCIDR(accountID, zoneID string) (string, bool) {
 	routes, err := c.ListTeamnetRoutes(accountID)

@@ -9,6 +9,7 @@ import (
 	"github.com/chgarcia79/cloudflarenetconnect/internal/cloudflare"
 	"github.com/chgarcia79/cloudflarenetconnect/internal/config"
 	"github.com/chgarcia79/cloudflarenetconnect/internal/ui"
+	"github.com/chgarcia79/cloudflarenetconnect/internal/wireguard"
 )
 
 func (t *TrayApp) StartAssociateFlow() {
@@ -43,88 +44,14 @@ func (t *TrayApp) StartAssociateFlow() {
 
 		discovered := client.DiscoverRoutes(accID, res.ZoneID)
 		pnCIDR, hasPN := client.DiscoverPrivateCIDR(accID, res.ZoneID)
+		teamName := client.DiscoverTeamName(accID, accName, res.ZoneID)
 		splash.SetSuccess(accName)
 
 		t.mu.Lock()
-		var targetAcc config.AccountConfig
-		exists := false
-		for i, a := range t.cfg.Accounts {
-			isMatch := false
-			if res.ZoneID != "" && a.ZoneID != "" {
-				isMatch = (a.ZoneID == res.ZoneID)
-			} else if a.Name == accName && accName != "" {
-				isMatch = true
-			} else if res.ZoneID == "" && a.ZoneID == "" && a.AccountID == accID {
-				isMatch = true
-			}
-
-			if isMatch {
-				t.cfg.Accounts[i].APIToken = res.Token
-				t.cfg.Accounts[i].Name = accName
-				t.cfg.Accounts[i].ZoneID = res.ZoneID
-				t.cfg.Accounts[i].Enabled = true
-				if len(discovered) > 0 {
-					t.cfg.Accounts[i].Routes = mergeRoutes(t.cfg.Accounts[i].Routes, discovered)
-				}
-				if hasPN {
-					if t.cfg.Accounts[i].PrivateNetwork == nil {
-						t.cfg.Accounts[i].PrivateNetwork = &config.PrivateNetworkConfig{
-							Enabled:    false,
-							AutoDetect: true,
-							CIDR:       pnCIDR,
-						}
-					} else {
-						t.cfg.Accounts[i].PrivateNetwork.CIDR = pnCIDR
-					}
-				}
-				targetAcc = t.cfg.Accounts[i]
-				exists = true
-				break
-			}
-		}
-
-		if !exists {
-			shortID := res.ZoneID
-			if shortID == "" {
-				shortID = accID
-			}
-			if len(shortID) > 8 {
-				shortID = shortID[:8]
-			}
-			for _, a := range t.cfg.Accounts {
-				if a.ID == shortID {
-					shortID = fmt.Sprintf("%s-%d", shortID, len(t.cfg.Accounts))
-					break
-				}
-			}
-			var pnCfg *config.PrivateNetworkConfig
-			if hasPN {
-				pnCfg = &config.PrivateNetworkConfig{
-					Enabled:    false,
-					AutoDetect: true,
-					CIDR:       pnCIDR,
-				}
-			}
-			targetAcc = config.AccountConfig{
-				ID:             shortID,
-				Name:           accName,
-				AccountID:      accID,
-				ZoneID:         res.ZoneID,
-				APIToken:       res.Token,
-				Enabled:        true,
-				Routes:         discovered,
-				PrivateNetwork: pnCfg,
-			}
-			t.cfg.Accounts = append(t.cfg.Accounts, targetAcc)
-		}
+		targetAcc := t.applyDiscoveredAccount(res, accID, accName, discovered, pnCIDR, teamName, hasPN)
 		t.mu.Unlock()
 
-		if err := config.SaveConfig(t.configPath, t.cfg); err != nil {
-			log.Printf("[AUTH-FLOW] Error guardando configuración: %v\n", err)
-		} else {
-			log.Printf("[AUTH-FLOW] Configuración guardada (%d túneles descubiertos).\n", len(targetAcc.Routes))
-		}
-
+		_ = config.SaveConfig(t.configPath, t.cfg)
 		if t.orch != nil {
 			t.orch.ReloadAccount(targetAcc)
 		}
@@ -134,6 +61,75 @@ func (t *TrayApp) StartAssociateFlow() {
 		splash.Close()
 		cs.Close()
 	}()
+}
+
+func (t *TrayApp) applyDiscoveredAccount(res auth.AuthResult, accID, accName string, discovered []config.TunnelRoute, pnCIDR, teamName string, hasPN bool) config.AccountConfig {
+	for i, a := range t.cfg.Accounts {
+		isMatch := (res.ZoneID != "" && a.ZoneID == res.ZoneID) || (a.Name == accName && accName != "") || (a.AccountID == accID)
+		if isMatch {
+			t.cfg.Accounts[i].APIToken = res.Token
+			t.cfg.Accounts[i].Name = accName
+			t.cfg.Accounts[i].ZoneID = res.ZoneID
+			t.cfg.Accounts[i].Enabled = true
+			if len(discovered) > 0 {
+				t.cfg.Accounts[i].Routes = mergeRoutes(t.cfg.Accounts[i].Routes, discovered)
+			}
+			if hasPN {
+				t.ensurePrivateNetworkConfig(&t.cfg.Accounts[i], pnCIDR, teamName)
+			}
+			return t.cfg.Accounts[i]
+		}
+	}
+
+	shortID := res.ZoneID
+	if shortID == "" {
+		shortID = accID
+	}
+	if len(shortID) > 8 {
+		shortID = shortID[:8]
+	}
+	for _, a := range t.cfg.Accounts {
+		if a.ID == shortID {
+			shortID = fmt.Sprintf("%s-%d", shortID, len(t.cfg.Accounts))
+			break
+		}
+	}
+	targetAcc := config.AccountConfig{
+		ID:        shortID,
+		Name:      accName,
+		AccountID: accID,
+		ZoneID:    res.ZoneID,
+		APIToken:  res.Token,
+		Enabled:   true,
+		Routes:    discovered,
+	}
+	if hasPN {
+		t.ensurePrivateNetworkConfig(&targetAcc, pnCIDR, teamName)
+	}
+	t.cfg.Accounts = append(t.cfg.Accounts, targetAcc)
+	return targetAcc
+}
+
+func (t *TrayApp) ensurePrivateNetworkConfig(acc *config.AccountConfig, pnCIDR, teamName string) {
+	if acc.PrivateNetwork == nil {
+		acc.PrivateNetwork = &config.PrivateNetworkConfig{
+			Enabled:    false,
+			AutoDetect: true,
+			CIDR:       pnCIDR,
+			TeamName:   teamName,
+		}
+	} else {
+		acc.PrivateNetwork.CIDR = pnCIDR
+		if acc.PrivateNetwork.TeamName == "" {
+			acc.PrivateNetwork.TeamName = teamName
+		}
+	}
+	if acc.PrivateNetwork.DeviceID == "" || acc.PrivateNetwork.Token == "" {
+		acc.PrivateNetwork.DeviceID = ""
+		if enrolled, err := wireguard.EnsureEnrolled(acc.PrivateNetwork); err == nil && enrolled != nil {
+			log.Printf("[AUTH-FLOW] 🛡️ Red privada aprovisionada en Zero Trust (Org: %s, IP: %s)\n", teamName, enrolled.AddressIPv4)
+		}
+	}
 }
 
 // RefreshAccountTunnels consulta a la API de Cloudflare los túneles de una cuenta y recarga sus workers.
@@ -155,21 +151,14 @@ func (t *TrayApp) RefreshAccountTunnels(index int) {
 	client := cloudflare.NewClient(acc.APIToken)
 	discovered := client.DiscoverRoutes(acc.AccountID, acc.ZoneID)
 	pnCIDR, hasPN := client.DiscoverPrivateCIDR(acc.AccountID, acc.ZoneID)
+	teamName := client.DiscoverTeamName(acc.AccountID, acc.Name, acc.ZoneID)
 
 	t.mu.Lock()
 	if index < len(t.cfg.Accounts) {
 		t.cfg.Accounts[index].Routes = mergeRoutes(t.cfg.Accounts[index].Routes, discovered)
 		if hasPN {
-			if t.cfg.Accounts[index].PrivateNetwork == nil {
-				t.cfg.Accounts[index].PrivateNetwork = &config.PrivateNetworkConfig{
-					Enabled:    false,
-					AutoDetect: true,
-					CIDR:       pnCIDR,
-				}
-			} else {
-				t.cfg.Accounts[index].PrivateNetwork.CIDR = pnCIDR
-			}
-			log.Printf("[TUNNEL-SYNC] 🌐 Red privada activa para '%s': %s\n", acc.Name, pnCIDR)
+			t.ensurePrivateNetworkConfig(&t.cfg.Accounts[index], pnCIDR, teamName)
+			log.Printf("[TUNNEL-SYNC] 🌐 Red privada activa para '%s': %s (Org: %s)\n", acc.Name, pnCIDR, teamName)
 		} else if t.cfg.Accounts[index].PrivateNetwork != nil && !t.cfg.Accounts[index].PrivateNetwork.Enabled && (t.cfg.Accounts[index].PrivateNetwork.CIDR == "192.168.1.0/24" || t.cfg.Accounts[index].PrivateNetwork.CIDR == "") {
 			t.cfg.Accounts[index].PrivateNetwork = nil
 		}

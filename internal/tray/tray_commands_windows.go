@@ -5,7 +5,9 @@ package tray
 import (
 	"os"
 
+	"github.com/chgarcia79/cloudflarenetconnect/internal/cloudflare"
 	"github.com/chgarcia79/cloudflarenetconnect/internal/config"
+	"github.com/chgarcia79/cloudflarenetconnect/internal/wireguard"
 	"golang.org/x/sys/windows"
 )
 
@@ -24,7 +26,18 @@ func (t *TrayApp) handleMenuCommand(cmd uintptr, maps menuCommandMaps) {
 	}
 	if idx, ok := maps.pnToggleMap[cmd]; ok {
 		t.mu.Lock()
-		accID := t.cfg.Accounts[idx].ID
+		acc := &t.cfg.Accounts[idx]
+		accID := acc.ID
+		if acc.PrivateNetwork != nil {
+			if acc.PrivateNetwork.TeamName == "" {
+				client := cloudflare.NewClient(acc.APIToken)
+				acc.PrivateNetwork.TeamName = client.DiscoverTeamName(acc.AccountID, acc.Name, acc.ZoneID)
+			}
+			if acc.PrivateNetwork.Token == "" || acc.PrivateNetwork.DeviceID == "" {
+				acc.PrivateNetwork.DeviceID = ""
+				_, _ = wireguard.EnsureEnrolled(acc.PrivateNetwork)
+			}
+		}
 		t.mu.Unlock()
 		if t.orch != nil {
 			t.orch.TogglePrivateNetwork(accID)
