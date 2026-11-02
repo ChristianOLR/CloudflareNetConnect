@@ -95,13 +95,8 @@ func (t *TrayApp) applyDiscoveredAccount(res auth.AuthResult, accID, accName str
 		}
 	}
 	targetAcc := config.AccountConfig{
-		ID:        shortID,
-		Name:      accName,
-		AccountID: accID,
-		ZoneID:    res.ZoneID,
-		APIToken:  res.Token,
-		Enabled:   true,
-		Routes:    discovered,
+		ID: shortID, Name: accName, AccountID: accID,
+		ZoneID: res.ZoneID, APIToken: res.Token, Enabled: true, Routes: discovered,
 	}
 	if hasPN {
 		t.ensurePrivateNetworkConfig(&targetAcc, pnCIDR, teamName)
@@ -119,7 +114,9 @@ func (t *TrayApp) ensurePrivateNetworkConfig(acc *config.AccountConfig, pnCIDR, 
 			TeamName:   teamName,
 		}
 	} else {
-		acc.PrivateNetwork.CIDR = pnCIDR
+		if acc.PrivateNetwork.CIDR == "" {
+			acc.PrivateNetwork.CIDR = pnCIDR
+		}
 		if acc.PrivateNetwork.TeamName == "" {
 			acc.PrivateNetwork.TeamName = teamName
 		}

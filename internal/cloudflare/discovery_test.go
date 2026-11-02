@@ -63,3 +63,24 @@ func TestDiscoverTeamName(t *testing.T) {
 		t.Errorf("expected 'olrcloud', got '%s'", team2)
 	}
 }
+
+func TestAggregateCIDR(t *testing.T) {
+	routesHostOnly := []TeamnetRoute{
+		{Network: "192.168.1.3/32"},
+		{Network: "192.168.1.4/32"},
+		{Network: "192.168.1.250/32"},
+	}
+	agg := AggregateCIDR(routesHostOnly)
+	if agg != "192.168.1.0/24" {
+		t.Errorf("expected 192.168.1.0/24, got %s", agg)
+	}
+
+	routesWithSubnet := []TeamnetRoute{
+		{Network: "192.168.1.3/32"},
+		{Network: "10.50.0.0/16"},
+	}
+	aggSubnet := AggregateCIDR(routesWithSubnet)
+	if aggSubnet != "10.50.0.0/16" {
+		t.Errorf("expected 10.50.0.0/16, got %s", aggSubnet)
+	}
+}

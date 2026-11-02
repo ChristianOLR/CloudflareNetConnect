@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 )
 
@@ -84,6 +85,31 @@ func (c *Client) DiscoverTeamName(accountID, accountName, zoneName string) strin
 	return strings.Trim(base, "()[] \t")
 }
 
+// AggregateCIDR normaliza un conjunto de rutas privadas.
+// Si existe alguna subred (/24, /16, /8), la prioriza sobre hosts /32.
+// Si solo existen hosts aislados /32 pertenecientes a una misma clase C, calcula el /24 englobante.
+func AggregateCIDR(routes []TeamnetRoute) string {
+	if len(routes) == 0 {
+		return ""
+	}
+	for _, r := range routes {
+		netStr := strings.TrimSpace(r.Network)
+		if netStr != "" && !strings.HasSuffix(netStr, "/32") {
+			return netStr
+		}
+	}
+	for _, r := range routes {
+		netStr := strings.TrimSpace(r.Network)
+		ipStr := strings.TrimSuffix(netStr, "/32")
+		ip := net.ParseIP(ipStr)
+		if ip != nil && ip.To4() != nil {
+			v4 := ip.To4()
+			return fmt.Sprintf("%d.%d.%d.0/24", v4[0], v4[1], v4[2])
+		}
+	}
+	return strings.TrimSpace(routes[0].Network)
+}
+
 // DiscoverPrivateCIDR busca dinámicamente el CIDR de red privada configurado en Zero Trust.
 func (c *Client) DiscoverPrivateCIDR(accountID, zoneID string) (string, bool) {
 	routes, err := c.ListTeamnetRoutes(accountID)
@@ -99,16 +125,19 @@ func (c *Client) DiscoverPrivateCIDR(accountID, zoneID string) (string, bool) {
 	if zoneID != "" {
 		if z, err := c.GetZone(zoneID); err == nil && z != nil && z.Name != "" {
 			domain := strings.ToLower(strings.TrimSpace(z.Name))
+			var matched []TeamnetRoute
 			for _, r := range routes {
 				cComment := strings.ToLower(r.Comment)
 				cTunnel := strings.ToLower(r.TunnelName)
 				if strings.Contains(cComment, domain) || strings.Contains(cTunnel, domain) {
-					return strings.TrimSpace(r.Network), true
+					matched = append(matched, r)
 				}
+			}
+			if len(matched) > 0 {
+				return AggregateCIDR(matched), true
 			}
 		}
 	}
 
-	// Devolver la primera subred activa de la cuenta
-	return strings.TrimSpace(routes[0].Network), true
+	return AggregateCIDR(routes), true
 }

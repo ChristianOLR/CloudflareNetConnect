@@ -13,6 +13,10 @@ import (
 )
 
 func main() {
+	if service.EnsureAdmin() {
+		return
+	}
+
 	exePath, err := os.Executable()
 	baseDir := "."
 	if err == nil {
